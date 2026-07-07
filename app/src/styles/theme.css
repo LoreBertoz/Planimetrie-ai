@@ -1,0 +1,131 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * PlanimetrieAI design tokens — natural/hemp identity (CLAUDE.md §9).
+ * Warm organic palette: sage green primary, terracotta accent,
+ * sand/off-white neutrals. No generic tech blue.
+ */
+:root {
+  /* surfaces */
+  --background: oklch(0.977 0.008 95);
+  --foreground: oklch(0.29 0.025 130);
+  --card: oklch(0.995 0.004 95);
+  --card-foreground: oklch(0.29 0.025 130);
+  --popover: oklch(0.995 0.004 95);
+  --popover-foreground: oklch(0.29 0.025 130);
+
+  /* brand: sage green (canapa) */
+  --primary: oklch(0.45 0.07 150);
+  --primary-foreground: oklch(0.98 0.008 95);
+
+  /* sand neutrals */
+  --secondary: oklch(0.93 0.018 92);
+  --secondary-foreground: oklch(0.35 0.03 130);
+  --muted: oklch(0.945 0.014 95);
+  --muted-foreground: oklch(0.5 0.03 120);
+  --accent: oklch(0.92 0.03 135);
+  --accent-foreground: oklch(0.32 0.04 140);
+
+  /* strong accent: terracotta */
+  --terra: oklch(0.62 0.13 50);
+  --terra-foreground: oklch(0.98 0.008 95);
+
+  --destructive: oklch(0.55 0.19 28);
+  --destructive-foreground: oklch(0.98 0.008 95);
+
+  --border: oklch(0.885 0.015 95);
+  --input: oklch(0.885 0.015 95);
+  --ring: oklch(0.45 0.07 150);
+
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: oklch(0.22 0.015 130);
+  --foreground: oklch(0.94 0.01 95);
+  --card: oklch(0.26 0.018 130);
+  --card-foreground: oklch(0.94 0.01 95);
+  --popover: oklch(0.26 0.018 130);
+  --popover-foreground: oklch(0.94 0.01 95);
+  --primary: oklch(0.72 0.08 150);
+  --primary-foreground: oklch(0.22 0.03 140);
+  --secondary: oklch(0.3 0.02 120);
+  --secondary-foreground: oklch(0.94 0.01 95);
+  --muted: oklch(0.3 0.02 120);
+  --muted-foreground: oklch(0.68 0.02 110);
+  --accent: oklch(0.33 0.03 140);
+  --accent-foreground: oklch(0.94 0.01 95);
+  --terra: oklch(0.68 0.13 50);
+  --terra-foreground: oklch(0.2 0.02 50);
+  --destructive: oklch(0.62 0.19 28);
+  --destructive-foreground: oklch(0.98 0.008 95);
+  --border: oklch(0.34 0.02 120);
+  --input: oklch(0.34 0.02 120);
+  --ring: oklch(0.72 0.08 150);
+}
+
+@theme inline {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-terra: var(--terra);
+  --color-terra-foreground: var(--terra-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* extended natural palette (hemp focus) */
+  --color-salvia-50: oklch(0.97 0.012 145);
+  --color-salvia-100: oklch(0.94 0.025 145);
+  --color-salvia-200: oklch(0.88 0.045 148);
+  --color-salvia-300: oklch(0.78 0.06 148);
+  --color-salvia-400: oklch(0.65 0.07 150);
+  --color-salvia-500: oklch(0.53 0.07 150);
+  --color-salvia-600: oklch(0.45 0.07 150);
+  --color-salvia-700: oklch(0.38 0.06 150);
+  --color-salvia-800: oklch(0.31 0.05 148);
+  --color-salvia-900: oklch(0.26 0.04 145);
+  --color-sabbia-50: oklch(0.98 0.006 92);
+  --color-sabbia-100: oklch(0.95 0.014 92);
+  --color-sabbia-200: oklch(0.91 0.022 90);
+  --color-sabbia-300: oklch(0.85 0.03 88);
+  --color-sabbia-400: oklch(0.75 0.04 85);
+  --color-terra-300: oklch(0.78 0.08 55);
+  --color-terra-500: oklch(0.62 0.13 50);
+  --color-terra-600: oklch(0.55 0.13 48);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-soft: 0 1px 2px oklch(0.3 0.02 120 / 0.06), 0 4px 16px oklch(0.3 0.02 120 / 0.06);
+  --shadow-panel: 0 1px 3px oklch(0.3 0.02 120 / 0.08), 0 8px 28px oklch(0.3 0.02 120 / 0.08);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}

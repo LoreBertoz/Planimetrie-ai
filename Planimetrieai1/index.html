@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Planimetrie — editor locale 2D/3D</title>
+  </head>
+  <body>
+    <header id="toolbar">
+      <div class="group brand">🏠 Planimetrie</div>
+
+      <div class="group">
+        <button id="tab-2d" class="tab active">Pianta 2D</button>
+        <button id="tab-3d" class="tab">Vista 3D</button>
+      </div>
+
+      <div class="group" id="tools">
+        <button data-tool="select" title="Seleziona (click), Canc per eliminare">Seleziona</button>
+        <button data-tool="wall" class="active" title="Click per iniziare/continuare, doppio click per terminare">Muro</button>
+        <button data-tool="door" title="Click su un muro">Porta</button>
+        <button data-tool="window" title="Click su un muro">Finestra</button>
+        <button data-tool="label" title="Click per posizionare etichetta stanza">Etichetta</button>
+      </div>
+
+      <div class="group">
+        <button id="btn-generate" class="primary">✨ Genera layout</button>
+        <button id="btn-fit">Adatta vista</button>
+      </div>
+
+      <div class="group right">
+        <button id="btn-new">Nuovo</button>
+        <button id="btn-load">Apri…</button>
+        <button id="btn-save">Salva JSON</button>
+        <button id="btn-export-glb" class="primary">Esporta 3D (.glb)</button>
+        <input type="file" id="file-input" accept=".json" hidden />
+      </div>
+    </header>
+
+    <main id="viewport">
+      <div id="view2d">
+        <canvas id="plan-canvas"></canvas>
+        <div id="hint">
+          Muro: click–click per disegnare, doppio click per terminare · Rotellina: zoom ·
+          Shift+trascina: pan · Canc: elimina selezione
+        </div>
+      </div>
+      <div id="view3d"></div>
+    </main>
+
+    <dialog id="gen-dialog">
+      <form method="dialog">
+        <h2>Genera planimetria</h2>
+        <label>
+          Larghezza (m)
+          <input type="number" id="gen-width" value="12" min="3" max="60" step="0.5" />
+        </label>
+        <label>
+          Profondità (m)
+          <input type="number" id="gen-depth" value="9" min="3" max="60" step="0.5" />
+        </label>
+        <label>
+          Stanze (una per riga, <code>nome: m²</code>)
+          <textarea id="gen-rooms" rows="7">Soggiorno: 30
+Cucina: 14
+Camera 1: 16
+Camera 2: 12
+Bagno: 6
+Corridoio: 8</textarea>
+        </label>
+        <div class="dialog-actions">
+          <button value="cancel">Annulla</button>
+          <button id="gen-variant">Altra variante</button>
+          <button id="gen-run" class="primary">Genera</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

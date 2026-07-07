@@ -1,0 +1,162 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #2a2a28;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  background: #23262b;
+  color: #eee;
+  flex-wrap: wrap;
+}
+
+#toolbar .brand {
+  font-weight: 700;
+  font-size: 15px;
+  margin-right: 4px;
+}
+
+#toolbar .group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+#toolbar .group.right {
+  margin-left: auto;
+}
+
+#toolbar button {
+  background: #3a3f46;
+  color: #eee;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#toolbar button:hover {
+  background: #4a5058;
+}
+
+#toolbar button.active {
+  background: #2b7de9;
+}
+
+#toolbar button.primary {
+  background: #2b9e5f;
+}
+
+#toolbar button.primary:hover {
+  background: #35b56f;
+}
+
+#viewport {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+
+#view2d,
+#view3d {
+  position: absolute;
+  inset: 0;
+}
+
+#plan-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
+
+#view3d canvas {
+  display: block;
+}
+
+#hint {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(35, 38, 43, 0.85);
+  color: #ddd;
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+dialog {
+  border: none;
+  border-radius: 12px;
+  padding: 22px;
+  min-width: 340px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+dialog h2 {
+  margin: 0 0 14px;
+  font-size: 17px;
+}
+
+dialog label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+dialog input,
+dialog textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.dialog-actions button {
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 6px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.dialog-actions button.primary {
+  background: #2b9e5f;
+  border-color: #2b9e5f;
+  color: #fff;
+}

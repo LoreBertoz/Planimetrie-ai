@@ -1,0 +1,13 @@
+{
+  "name": "planimetrieai-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env index.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "express": "^4.21.0"
+  }
+}
