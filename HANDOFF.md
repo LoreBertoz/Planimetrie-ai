@@ -126,7 +126,7 @@ Attività:
 **Obiettivo**: prompt liberi di qualità e foto-facciata → 3D (beta).
 
 Attività:
-- Introdurre un **backend proxy** (Node) per le chiamate AI: le chiavi API stanno solo lato server (vedi CLAUDE.md §5–6). Endpoint es. `/api/prompt-to-plan` e `/api/facade-to-plan`.
+- Introdurre un **backend proxy** (Node/Express) per le chiamate AI **via OpenRouter** (default `google/gemini-2.5-flash`): la chiave `OPENROUTER_API_KEY` sta solo lato server (vedi CLAUDE.md §5–6). Endpoint `/api/prompt-to-plan` e `/api/facade-to-plan`.
 - **Prompt avanzato**: se il parser euristico locale non basta, inviare il testo al proxy → LLM cloud → JSON `PlanRequest` validato → generatore. Mantenere l'euristico locale come fallback offline.
 - **Foto facciata → 3D (beta)**: upload immagine → proxy → modello vision cloud che stima piani, proporzioni, aperture, stile → planimetria/volumetria iniziale → pipeline esistente. Marcare chiaramente come **sperimentale** in UI.
 

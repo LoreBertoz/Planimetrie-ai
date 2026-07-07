@@ -100,19 +100,23 @@ Le **schede tecniche** dei materiali (isolamento, sostenibilità, costi) sono ro
 
 Deciso: **AI su cloud** (non solo locale). Serve per prompt complessi e soprattutto per la foto-facciata.
 
-- **Prompt → programma stanze**: il parser euristico locale di `lib/prompt.ts` resta come fallback; per prompt liberi/complessi si chiama un LLM cloud che restituisce un `PlanRequest` strutturato (JSON).
-- **Foto facciata → 3D** (feature *beta*): modello vision cloud che stima proporzioni, numero piani, aperture e stile dalla foto → genera una planimetria/volumetria di partenza. È la parte più sperimentale: marcarla chiaramente come sperimentale nell'UI.
+**Provider scelto: OpenRouter** (API OpenAI-compatible → una sola chiave, tanti modelli con fallback). Modello di default **`google/gemini-2.5-flash`** (economico, vision forte, structured output). Cambiabile via env `OPENROUTER_MODEL` (es. `google/gemini-2.5-pro`, `anthropic/claude-sonnet-4.5`, `openai/gpt-4o`) senza toccare il codice.
+
+- **Prompt → programma stanze**: il parser euristico locale di `lib/prompt.ts` resta come fallback; per prompt liberi/complessi si chiama OpenRouter che restituisce un `PlanRequest` strutturato (JSON) via `response_format: json_schema`. Endpoint backend: `POST /api/prompt-to-plan`.
+- **Foto facciata → 3D** (feature *beta*): modello vision su OpenRouter (Gemini) che stima proporzioni, numero piani, aperture e stile dalla foto → genera una planimetria/volumetria di partenza. Immagine inviata come data-URI in `image_url`. Endpoint: `POST /api/facade-to-plan`. È la parte più sperimentale: marcarla chiaramente come sperimentale nell'UI.
+
+Nota implementazione: le chiamate AI usano `fetch` diretto verso `https://openrouter.ai/api/v1/chat/completions` (nessun SDK), con parsing JSON difensivo (alcuni modelli incapsulano il JSON in code-fence anche sotto schema).
 
 ### Sicurezza chiavi API
 
-> Le chiavi API **non stanno mai nel browser.** Tutte le chiamate AI passano da un **backend proxy** (vedi §6). Mai committare chiavi; usare variabili d'ambiente lato server.
+> Le chiavi API **non stanno mai nel browser.** Tutte le chiamate AI passano dal **backend proxy** (vedi §6). La chiave `OPENROUTER_API_KEY` sta solo in `server/.env` (gitignored, mai committato); `server/.env.example` è il template. Mai committare chiavi; usare variabili d'ambiente lato server.
 
 ---
 
 ## 6. Architettura SaaS
 
 - **Frontend**: React 19 + Vite + TypeScript (SPA).
-- **Backend**: servizio leggero (Node) che fa da **proxy per le chiamate AI** e gestisce **account + abbonamento**. Da introdurre nella fase dedicata (vedi `HANDOFF.md`), non serve per le prime fasi che girano client-side.
+- **Backend**: servizio leggero (Node/Express in `server/`) che fa da **proxy per le chiamate AI** (OpenRouter, vedi §5) e gestisce **account + progetti + abbonamento**. Non serve per le prime fasi che girano client-side.
 - **Export**: `.glb` (3D), JSON (dati piano), immagini/SVG (2D) → il professionista rifinisce altrove.
 
 ---
