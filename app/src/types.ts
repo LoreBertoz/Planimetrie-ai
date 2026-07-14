@@ -99,6 +99,8 @@ export interface Wall {
   id: string;
   a: Point;
   b: Point;
+  /** Total thickness (m). Derived from the assembly when assemblyId is set;
+   *  free value for walls drawn before Fase 9 (kept for compatibility). */
   thickness: number;
   height: number;
   openings: Opening[];
@@ -106,7 +108,65 @@ export interface Wall {
   exterior?: boolean;
   /** Material applied in 3D (see src/materials/catalog.ts). */
   materialId?: string;
+  /** Wall assembly preset (see src/materials/wallAssemblies.ts). */
+  assemblyId?: string;
+  /** Custom stratigraphy when the user edits layers (assemblyId = 'custom'). */
+  layers?: WallLayer[];
 }
+
+/* ----------------------- Wall stratigraphy (Fase 9) ----------------------- */
+
+export type WallLayerFunction =
+  | 'struttura'
+  | 'isolante'
+  | 'intercapedine'
+  | 'rasante'
+  | 'intonaco'
+  | 'cartongesso'
+  | 'rivestimento';
+
+export interface WallLayer {
+  materialId: string;
+  thickness: number; // meters
+  function: WallLayerFunction;
+}
+
+export interface WallAssembly {
+  id: string;
+  nome: string; // e.g. "Muratura portante 30cm + cappotto canapa 12cm"
+  categoria: 'portante' | 'tamponamento' | 'tramezzo' | 'cartongesso' | 'facciata-ventilata';
+  /** Layers from the inside face to the outside face. */
+  layers: WallLayer[];
+  /** Sum of layer thicknesses; computed, never hand-edited. */
+  thickness: number;
+}
+
+/* -------------------------- Furniture (Fase 10) --------------------------- */
+
+export interface FurnitureItem {
+  id: string;
+  /** Catalog entry (see src/materials/furnitureCatalog.ts). */
+  catalogId: string;
+  /** Center position on the plan (m). */
+  x: number;
+  y: number;
+  /** Rotation around the vertical axis (radians, CCW in plan). */
+  rotation: number;
+  roomId?: string;
+}
+
+/* ----------------------------- Roof (Fase 8) ------------------------------ */
+
+export type RoofType = 'flat' | 'gable' | 'hip';
+
+export interface RoofOptions {
+  type: RoofType;
+  /** Slope as rise/run (e.g. 0.3 = 30%). Ignored for flat roofs. */
+  slope: number;
+  visible: boolean;
+}
+
+export const DEFAULT_ROOF: RoofOptions = { type: 'gable', slope: 0.3, visible: true };
 
 export interface RoomLabel {
   id: string;
@@ -121,6 +181,8 @@ export interface Plan {
   /** Rooms kept as plan metadata (labels, areas, per-room materials). */
   rooms?: PlacedRoom[];
   floorMaterialId?: string;
+  /** Placed furniture (Fase 10). */
+  furniture?: FurnitureItem[];
 }
 
 export const ROOM_META: Record<

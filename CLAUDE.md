@@ -165,14 +165,10 @@ npm run lint     # oxlint (già configurato in Planimetrieai2)
 
 ## 11. Stato e roadmap
 
-**Stato attuale**: due prototipi separati e funzionanti (P1 = 3D, P2 = generatore/prompt). Nessuna fusione ancora fatta.
+**Stato attuale**: fusione completata. L'app unificata gira in `app/` (React 19 + Vite + Three.js + design system + generatore/prompt + editor 2D + tour 3D in-app + materiali canapa + Cloud AI via OpenRouter + shell SaaS con account/progetti), backend in `server/`. I due prototipi originali restano in `Planimetrieai1/`/`Planimetrieai2/` come riferimento storico sola-lettura.
 
-**Roadmap** (dettaglio in `HANDOFF.md`):
-1. Setup React unico + porting motore 3D di P1
-2. Porting generatore + prompt di P2 + convertitore stanze→muri
-3. Sistema materiali (focus canapa)
-4. Tour 3D in-app (+ placeholder video)
-5. Integrazione Cloud AI (prompt avanzato + foto facciata beta)
-6. Shell SaaS (account, abbonamento, backend proxy)
+**Roadmap completata** (dettaglio in `HANDOFF.md`):
+- **Fasi 0-6**: setup React unico, porting motore 3D, generatore/prompt + convertitore stanze→muri, sistema materiali (focus canapa), tour 3D in-app + placeholder video, Cloud AI (prompt avanzato + foto facciata beta), shell SaaS.
+- **Fasi 7-11** (nate da un'analisi comparativa di maket.ai, vedi `maket-ai-analisi-funzionalita.md` e `proposta-evoluzione-planimetrieai.md`): materiali estesi a 6 superfici (`MaterialAssignment` flooring/walls/ceiling/doors/windows/exteriorWalls, con migrazione dei progetti salvati vecchi via `migrateAssignment`) + libreria stili (`materials/styles.ts` + `StylePicker`); tetto procedurale piano-con-parapetto/capanna/padiglione (`engine/roof.ts`) con pendenza e toggle mostra/nascondi, soffitto texturizzabile, resa 3D migliorata (IBL RoomEnvironment, PCFSoftShadowMap, prato procedurale, luce per stanza, dispose corretto delle risorse GPU); stratigrafia muri (`WallAssembly`/`WallLayer` in `types.ts`, preset reali in `materials/wallAssemblies.ts`, pannello muro con editor layer in `WallPanel.tsx`, facce interna/esterna distinte in 3D); catalogo arredi procedurali (`materials/furnitureCatalog.ts`) + "Arreda stanza" euristico (`lib/furnish.ts`) + piazza/trascina/ruota(R)/elimina in `Editor2D` + collisioni tour sui pezzi ingombranti; condivisione via link pubblico (route `/share/:token`, endpoint `GET /api/public/:shareToken` + `POST /api/projects/:id/share`, `SharePage.tsx` read-only) + impostazioni studio (nome+logo, `PATCH /api/account/settings`) + export PDF brandizzato (jsPDF, `exportPdf` in `lib/export.ts`).
 
-**Fuori scope v1**: multi-piano, calcoli esecutivi/normativi, schede tecniche materiali complete, video tour renderizzato, editor mobili/arredi dettagliati.
+**Fuori scope v1**: multi-piano, calcoli esecutivi/normativi (trasmittanza, verifica Glaser, ponti termici), schede tecniche materiali complete, **video tour renderizzato/esportabile** (resta un placeholder disabilitato — non implementarlo in nessuna fase salvo indicazione esplicita futura), upload planimetria esistente con riconoscimento AI, render fotorealistico AI on-demand, export DWG/Revit.

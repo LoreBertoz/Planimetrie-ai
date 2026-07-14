@@ -15,22 +15,37 @@ import {
   Wand2,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { FloorPlan, LotSpec, Plan, Point, RoomSpec } from './types'
+import type { FloorPlan, LotSpec, PlacedRoom, Plan, Point, RoofOptions, RoomSpec } from './types'
+import { DEFAULT_ROOF } from './types'
 import { defaultRooms, generateVariants } from './lib/generator'
 import { parsePromptHeuristic, parsePromptOllama } from './lib/prompt'
-import { exportJson, exportPng, exportSvg } from './lib/export'
+import { exportJson, exportPdf, exportPng, exportSvg } from './lib/export'
 import { exportDxf } from './lib/dxf'
 import { floorplanToWalls } from './lib/floorplanToWalls'
-import { promptToPlanCloud, type CloudPlanRequest, type ProjectData } from '@/lib/api'
+import { furnishRoom } from './lib/furnish'
+import {
+  getLocalStudioBrand,
+  promptToPlanCloud,
+  type CloudPlanRequest,
+  type ProjectData,
+} from '@/lib/api'
 import type { Viewer3D } from '@/engine/Viewer3D'
-import type { Tool } from '@/engine/Editor2D'
-import { DEFAULT_ASSIGNMENT, type MaterialAssignment } from '@/materials/catalog'
+import type { EditorSelection, Tool } from '@/engine/Editor2D'
+import {
+  DEFAULT_ASSIGNMENT,
+  migrateAssignment,
+  type MaterialAssignment,
+} from '@/materials/catalog'
 import { PlanSvg } from '@/components/PlanSvg'
 import { RoomForm } from '@/components/RoomForm'
 import { AppShell } from '@/components/AppShell'
 import { Viewer3DCanvas } from '@/components/Viewer3DCanvas'
 import { Editor2DCanvas } from '@/components/Editor2DCanvas'
 import { MaterialPicker } from '@/components/MaterialPicker'
+import { StylePicker } from '@/components/StylePicker'
+import { WallPanel } from '@/components/WallPanel'
+import { FurnitureMenu } from '@/components/FurnitureMenu'
+import { RoofControls } from '@/components/RoofControls'
 import { FacadePhotoCard } from '@/components/FacadePhotoCard'
 import { AccountMenu } from '@/components/AccountMenu'
 import { Landing } from '@/components/Landing'
@@ -87,6 +102,12 @@ export default function App() {
   const [editorTool, setEditorTool] = useState<Tool>('select')
   const [labelAt, setLabelAt] = useState<Point | null>(null)
   const [labelName, setLabelName] = useState('')
+  const [roof, setRoof] = useState<RoofOptions>(DEFAULT_ROOF)
+  const [editorSelection, setEditorSelection] = useState<EditorSelection>({
+    wallId: null,
+    openingId: null,
+    furnitureId: null,
+  })
 
   const selectVariant = (plan: FloorPlan, index: number) => {
     setSelected(index)
@@ -167,17 +188,24 @@ export default function App() {
       setPlans([])
       setWallPlan((data.wallPlan as Plan | undefined) ?? null)
     }
-    if (data.assignment) setAssignment(data.assignment as MaterialAssignment)
+    // Old saved projects use the 3-surface shape: migrate on load (Fase 7).
+    if (data.assignment) setAssignment(migrateAssignment(data.assignment))
     setWallsVersion((v) => v + 1)
   }
 
-  const doExport = (kind: 'SVG' | 'PNG' | 'DXF' | 'JSON') => {
+  const doExport = (kind: 'SVG' | 'PNG' | 'DXF' | 'JSON' | 'PDF') => {
     const plan = plans[selected]
     if (!plan) return
     if (kind === 'SVG' && svgRef.current) exportSvg(svgRef.current, 'planimetria')
     if (kind === 'PNG' && svgRef.current) exportPng(svgRef.current, 'planimetria')
     if (kind === 'DXF') exportDxf(plan, 'planimetria')
     if (kind === 'JSON') exportJson(plan, 'planimetria')
+    if (kind === 'PDF' && svgRef.current) {
+      // Branded header: studio logo + name from the account settings.
+      exportPdf(svgRef.current, getLocalStudioBrand(), 'planimetria').catch(() =>
+        toast.error('Export PDF non riuscito'),
+      )
+    }
     toast.success(`Export ${kind} avviato`)
   }
 
@@ -186,8 +214,38 @@ export default function App() {
     setLabelName('')
     setLabelAt(at)
   }, [])
+  const onEditorSelection = useCallback((sel: EditorSelection) => setEditorSelection(sel), [])
 
   const editorRef = useRef<import('@/engine/Editor2D').Editor2D | null>(null)
+
+  const onPlaceFurniture = (catalogId: string) => {
+    editorRef.current?.placeFurniture(catalogId)
+  }
+
+  const onFurnishRoom = (room: PlacedRoom) => {
+    if (!wallPlan) return
+    const items = furnishRoom(room)
+    if (items.length === 0) {
+      toast.error('Nessun arredo previsto per questa stanza')
+      return
+    }
+    if (!wallPlan.furniture) wallPlan.furniture = []
+    // Re-furnishing replaces the previous auto set for that room.
+    wallPlan.furniture = wallPlan.furniture.filter((f) => f.roomId !== room.id)
+    wallPlan.furniture.push(...items)
+    editorRef.current?.render()
+    setWallsVersion((v) => v + 1)
+    toast.success(`${room.label} arredata`, {
+      description: `${items.length} arredi posizionati: trascinali per sistemarli, R per ruotare.`,
+    })
+  }
+
+  const selectedWall = wallPlan?.walls.find((w) => w.id === editorSelection.wallId && !editorSelection.openingId) ?? null
+
+  const onWallPanelChange = useCallback(() => {
+    editorRef.current?.render()
+    setWallsVersion((v) => v + 1)
+  }, [])
 
   const confirmLabel = () => {
     if (labelAt && labelName.trim() && editorRef.current) {
@@ -251,6 +309,12 @@ export default function App() {
         {plans.length > 0 ? <RefreshCw aria-hidden /> : <Sparkles aria-hidden />}
         {generating ? 'Generazione…' : plans.length ? 'Rigenera proposte' : 'Genera proposte'}
       </Button>
+
+      <Card className="shadow-soft">
+        <CardContent>
+          <StylePicker assignment={assignment} onApply={setAssignment} />
+        </CardContent>
+      </Card>
 
       <Card className="shadow-soft">
         <CardContent>
@@ -335,7 +399,7 @@ export default function App() {
                     <Badge variant="secondary">{plan.rooms.length} stanze</Badge>
                     <Badge variant="secondary">{(lot.width * lot.depth).toFixed(0)} m²</Badge>
                     <div className="ml-auto flex items-center gap-1.5">
-                      {(['SVG', 'PNG', 'DXF', 'JSON'] as const).map((kind) => (
+                      {(['SVG', 'PNG', 'PDF', 'DXF', 'JSON'] as const).map((kind) => (
                         <Button
                           key={kind}
                           variant="outline"
@@ -376,16 +440,36 @@ export default function App() {
                     </Button>
                   ))}
                 </div>
-                <p className="ml-auto hidden text-xs text-muted-foreground lg:block">
-                  Rotella: zoom · Shift+trascina: sposta · Canc: elimina selezione · Esc: annulla
+                <Separator orientation="vertical" className="hidden h-6 lg:block" />
+                <FurnitureMenu
+                  rooms={wallPlan.rooms ?? []}
+                  onPlace={onPlaceFurniture}
+                  onFurnishRoom={onFurnishRoom}
+                />
+                <p className="ml-auto hidden text-xs text-muted-foreground xl:block">
+                  Rotella: zoom · Shift+trascina: sposta · R: ruota arredo · Canc: elimina · Esc:
+                  annulla
                 </p>
               </div>
+              {selectedWall && (
+                <div className="border-b bg-salvia-50/60 px-4 py-2">
+                  <WallPanel wall={selectedWall} onChange={onWallPanelChange} />
+                </div>
+              )}
+              {editorSelection.furnitureId && (
+                <div className="border-b bg-salvia-50/60 px-4 py-2 text-xs text-muted-foreground">
+                  Arredo selezionato: trascina per spostare ·{' '}
+                  <kbd className="rounded border bg-muted px-1">R</kbd> ruota ·{' '}
+                  <kbd className="rounded border bg-muted px-1">Canc</kbd> elimina
+                </div>
+              )}
               <div className="min-h-0 flex-1">
                 <Editor2DCanvas
                   plan={wallPlan}
                   tool={editorTool}
                   onChange={onWallsEdited}
                   onRequestLabel={onRequestLabel}
+                  onSelectionChange={onEditorSelection}
                   onEditor={(e) => {
                     editorRef.current = e
                   }}
@@ -403,9 +487,8 @@ export default function App() {
             <Card className="flex h-full flex-col gap-0 overflow-hidden py-0 shadow-panel">
               <div className="flex flex-wrap items-center gap-2 border-b bg-card px-4 py-2.5">
                 <span className="text-sm font-semibold">Modello 3D</span>
-                <p className="hidden text-xs text-muted-foreground md:block">
-                  Trascina per orbitare · rotella per zoom
-                </p>
+                <Separator orientation="vertical" className="hidden h-6 md:block" />
+                <RoofControls roof={roof} onChange={setRoof} />
                 <div className="ml-auto">
                   <Button
                     variant="outline"
@@ -424,6 +507,7 @@ export default function App() {
                 <Viewer3DCanvas
                   plan={wallPlan}
                   assignment={assignment}
+                  roof={roof}
                   version={wallsVersion}
                   onViewer={setViewer}
                 />
@@ -451,6 +535,7 @@ export default function App() {
                 <Viewer3DCanvas
                   plan={wallPlan}
                   assignment={assignment}
+                  roof={roof}
                   version={wallsVersion}
                   onViewer={setViewer}
                   onTourChange={setTouring}

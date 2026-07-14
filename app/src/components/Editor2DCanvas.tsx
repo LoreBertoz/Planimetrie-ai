@@ -1,18 +1,26 @@
 import { useEffect, useRef } from 'react'
 import type { Plan, Point } from '../types'
-import { Editor2D, type Tool } from '@/engine/Editor2D'
+import { Editor2D, type EditorSelection, type Tool } from '@/engine/Editor2D'
 
 interface Props {
   plan: Plan
   tool: Tool
   onChange: () => void
   onRequestLabel: (at: Point) => void
+  onSelectionChange?: (sel: EditorSelection) => void
   onEditor?: (editor: Editor2D | null) => void
 }
 
 /** React wrapper around the canvas 2D editor. The editor mutates the plan
  *  object in place; the host bumps a version counter on change. */
-export function Editor2DCanvas({ plan, tool, onChange, onRequestLabel, onEditor }: Props) {
+export function Editor2DCanvas({
+  plan,
+  tool,
+  onChange,
+  onRequestLabel,
+  onSelectionChange,
+  onEditor,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const editorRef = useRef<Editor2D | null>(null)
 
@@ -43,7 +51,8 @@ export function Editor2DCanvas({ plan, tool, onChange, onRequestLabel, onEditor 
     if (!editor) return
     editor.onChange = onChange
     editor.onRequestLabel = onRequestLabel
-  }, [onChange, onRequestLabel])
+    editor.onSelectionChange = onSelectionChange ?? (() => {})
+  }, [onChange, onRequestLabel, onSelectionChange])
 
   return <canvas ref={canvasRef} className="h-full w-full cursor-crosshair" />
 }

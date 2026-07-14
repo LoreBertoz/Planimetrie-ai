@@ -1,26 +1,32 @@
 // 3D engine (ported from prototype P1): extrudes the wall-based Plan into
 // walls with real door/window openings, floor slab, orbit controls, glTF
-// export. Adds: natural-material rendering from the catalog and a first-person
-// walk mode (pointer lock + WASD) for the house tour.
+// export. Adds: natural-material rendering from the catalog (6 surfaces),
+// procedural roof + ceiling, image-based lighting, per-room lights, furniture
+// and a first-person walk mode (pointer lock + WASD) for the house tour.
 // Plan (x, y) maps to world (x, z); height is world y.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import type { Plan, Wall } from '../types';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import type { Plan, Point, RoofOptions, Wall } from '../types';
+import { DEFAULT_ROOF } from '../types';
 import { wallLength, distToWall } from '../lib/model';
 import {
   DEFAULT_ASSIGNMENT,
   getMaterial,
   type MaterialAssignment,
 } from '../materials/catalog';
+import { getFurniture } from '../materials/furnitureCatalog';
+import { buildRoofGroup } from './roof';
 
 const GLASS_COLOR = 0xaecfc2;
 const EYE_HEIGHT = 1.6;
 const WALK_SPEED = 2.6; // m/s
 const BODY_RADIUS = 0.22;
+const MAX_ROOM_LIGHTS = 12;
 
-function toStandard(defId: string, fallback: number): THREE.MeshStandardMaterial {
+function toStandard(defId: string | undefined, fallback: number): THREE.MeshStandardMaterial {
   const def = getMaterial(defId);
   if (!def) return new THREE.MeshStandardMaterial({ color: fallback, roughness: 0.9 });
   return new THREE.MeshStandardMaterial({
@@ -30,17 +36,73 @@ function toStandard(defId: string, fallback: number): THREE.MeshStandardMaterial
   });
 }
 
+/** Recursively free GPU resources of a subtree (three.js disposal pattern).
+ *  Prevents leaks/flicker after repeated regenerations in one session. */
+function disposeSubtree(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
+    const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+    for (const m of mats) {
+      const sm = m as THREE.MeshStandardMaterial;
+      sm.map?.dispose();
+      sm.normalMap?.dispose();
+      sm.roughnessMap?.dispose();
+      m.dispose();
+    }
+  });
+}
+
+/** Tileable grass-like texture generated on a canvas (no external assets). */
+function makeGrassTexture(): THREE.Texture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#9fb086';
+  ctx.fillRect(0, 0, size, size);
+  // deterministic speckle (simple LCG so builds stay reproducible)
+  let s = 42;
+  const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 0xffffffff);
+  for (let i = 0; i < 1600; i++) {
+    const shade = 0.85 + rnd() * 0.3;
+    ctx.fillStyle = `rgb(${Math.round(140 * shade)}, ${Math.round(165 * shade)}, ${Math.round(118 * shade)})`;
+    ctx.fillRect(Math.floor(rnd() * size), Math.floor(rnd() * size), 2, 2);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(80, 80);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+interface Collider {
+  x: number;
+  y: number;
+  r: number;
+}
+
 export class Viewer3D {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private controls: OrbitControls;
   private buildingGroup: THREE.Group;
+  private roofGroup: THREE.Group | null = null;
+  private ceiling: THREE.Mesh | null = null;
+  private roomLights: THREE.Group;
+  private pmrem: THREE.PMREMGenerator;
+  private envTexture: THREE.Texture;
+  private groundTexture: THREE.Texture;
   private resizeObserver: ResizeObserver;
   private container: HTMLElement;
 
   private plan: Plan | null = null;
   private assignment: MaterialAssignment = DEFAULT_ASSIGNMENT;
+  private roof: RoofOptions = { ...DEFAULT_ROOF };
+  private furnitureColliders: Collider[] = [];
 
   // Tour state
   private touring = false;
@@ -88,12 +150,19 @@ export class Viewer3D {
     this.container = container;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xf3f0e8);
-    this.scene.fog = new THREE.Fog(0xf3f0e8, 60, 160);
+    this.scene.background = new THREE.Color(0xdfe8ef);
+    this.scene.fog = new THREE.Fog(0xdfe8ef, 60, 160);
+
+    // Image-based lighting from three's procedural RoomEnvironment: HDRI-like
+    // reflections and soft fill with zero external assets to load.
+    this.pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.envTexture = this.pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environment = this.envTexture;
+    this.scene.environmentIntensity = 0.55;
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.05, 500);
     this.camera.position.set(12, 12, 12);
@@ -101,21 +170,23 @@ export class Viewer3D {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
 
-    const ambient = new THREE.HemisphereLight(0xffffff, 0x9a8f7a, 0.9);
+    const ambient = new THREE.HemisphereLight(0xffffff, 0x9a8f7a, 0.5);
     this.scene.add(ambient);
-    const sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
+    const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
     sun.position.set(20, 30, 10);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -25;
-    sun.shadow.camera.right = 25;
-    sun.shadow.camera.top = 25;
-    sun.shadow.camera.bottom = -25;
+    sun.shadow.mapSize.set(4096, 4096);
+    sun.shadow.camera.left = -30;
+    sun.shadow.camera.right = 30;
+    sun.shadow.camera.top = 30;
+    sun.shadow.camera.bottom = -30;
+    sun.shadow.bias = -0.0002;
     this.scene.add(sun);
 
+    this.groundTexture = makeGrassTexture();
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(300, 300),
-      new THREE.MeshStandardMaterial({ color: 0xb9c4a8, roughness: 1 }),
+      new THREE.PlaneGeometry(400, 400),
+      new THREE.MeshStandardMaterial({ map: this.groundTexture, roughness: 1 }),
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.06;
@@ -125,6 +196,10 @@ export class Viewer3D {
     this.buildingGroup = new THREE.Group();
     this.buildingGroup.name = 'building';
     this.scene.add(this.buildingGroup);
+
+    this.roomLights = new THREE.Group();
+    this.roomLights.name = 'roomLights';
+    this.scene.add(this.roomLights);
 
     const resize = () => {
       const w = container.clientWidth;
@@ -162,13 +237,22 @@ export class Viewer3D {
     });
   }
 
-  build(plan: Plan, assignment?: MaterialAssignment): void {
+  build(plan: Plan, assignment?: MaterialAssignment, roof?: RoofOptions): void {
     this.plan = plan;
     if (assignment) this.assignment = assignment;
+    if (roof) this.roof = roof;
+    // Free GPU resources of the previous build before replacing it.
+    disposeSubtree(this.buildingGroup);
     this.buildingGroup.clear();
+    this.roofGroup = null;
+    this.ceiling = null;
+    this.roomLights.clear();
+    this.furnitureColliders = [];
 
-    const extMat = toStandard(this.assignment.esterno, 0xf2efe8);
-    const intMat = toStandard(this.assignment.interno, 0xf2efe8);
+    const extMat = toStandard(this.assignment.exteriorWalls, 0xf2efe8);
+    const intMat = toStandard(this.assignment.walls, 0xf2efe8);
+    const doorMat = toStandard(this.assignment.doors, 0xb08d5f);
+    const frameMat = toStandard(this.assignment.windows, 0x9a7a4f);
     const glassMat = new THREE.MeshStandardMaterial({
       color: GLASS_COLOR,
       roughness: 0.1,
@@ -178,20 +262,25 @@ export class Viewer3D {
     });
 
     for (const wall of plan.walls) {
-      const mat = wall.materialId
-        ? toStandard(wall.materialId, 0xf2efe8)
-        : wall.exterior
-          ? extMat
-          : intMat;
-      const group = this.buildWall(wall, mat, glassMat);
+      const override = wall.materialId ? toStandard(wall.materialId, 0xf2efe8) : null;
+      const group = this.buildWall(
+        wall,
+        override ?? intMat,
+        override ?? (wall.exterior ? extMat : intMat),
+        glassMat,
+        doorMat,
+        frameMat,
+      );
       this.buildingGroup.add(group);
     }
 
-    // Floor slab under the bounding box of all walls.
     if (plan.walls.length > 0) {
       const { minX, minY, maxX, maxY } = this.bounds(plan);
+      const wallHeight = plan.walls[0]?.height ?? 2.7;
+
+      // Floor slab under the bounding box of all walls.
       const t = 0.1;
-      const floorMat = toStandard(plan.floorMaterialId ?? this.assignment.pavimento, 0xd8cdb8);
+      const floorMat = toStandard(plan.floorMaterialId ?? this.assignment.flooring, 0xd8cdb8);
       const floor = new THREE.Mesh(
         new THREE.BoxGeometry(maxX - minX + 0.4, t, maxY - minY + 0.4),
         floorMat,
@@ -200,6 +289,63 @@ export class Viewer3D {
       floor.receiveShadow = true;
       floor.name = 'floor';
       this.buildingGroup.add(floor);
+
+      // Ceiling slab at wall height (Fase 8), textured via assignment.ceiling.
+      const ceilMat = toStandard(this.assignment.ceiling, 0xf2efe7);
+      const ceiling = new THREE.Mesh(
+        new THREE.BoxGeometry(maxX - minX + 0.1, 0.08, maxY - minY + 0.1),
+        ceilMat,
+      );
+      ceiling.position.set((minX + maxX) / 2, wallHeight + 0.04, (minY + maxY) / 2);
+      ceiling.receiveShadow = true;
+      ceiling.name = 'ceiling';
+      ceiling.visible = this.roof.visible;
+      this.ceiling = ceiling;
+      this.buildingGroup.add(ceiling);
+
+      // Procedural roof (Fase 8) over the room footprint (bbox fallback).
+      const rects =
+        plan.rooms && plan.rooms.length > 0
+          ? plan.rooms
+          : [{ x: minX, y: minY, w: maxX - minX, h: maxY - minY }];
+      const roofMat = new THREE.MeshStandardMaterial({
+        color: 0xa1583f, // coppi
+        roughness: 0.9,
+        metalness: 0,
+        side: THREE.DoubleSide,
+      });
+      const gableMat = toStandard(this.assignment.exteriorWalls, 0xf2efe8);
+      gableMat.side = THREE.DoubleSide;
+      const exteriorWalls = plan.walls.filter((w) => w.exterior);
+      this.roofGroup = buildRoofGroup(rects, exteriorWalls, wallHeight, this.roof, roofMat, gableMat);
+      this.roofGroup.visible = this.roof.visible;
+      this.buildingGroup.add(this.roofGroup);
+
+      // One warm light per room, auto-placed at its center below the ceiling.
+      if (plan.rooms) {
+        for (const room of plan.rooms.slice(0, MAX_ROOM_LIGHTS)) {
+          const light = new THREE.PointLight(0xffe9c9, 4, 7, 1.8);
+          light.position.set(room.x + room.w / 2, wallHeight - 0.35, room.y + room.h / 2);
+          this.roomLights.add(light);
+        }
+      }
+
+      // Furniture (Fase 10): procedural pieces from the catalog.
+      for (const item of plan.furniture ?? []) {
+        const def = getFurniture(item.catalogId);
+        if (!def) continue;
+        const piece = def.build();
+        piece.name = item.id;
+        piece.position.set(item.x, 0, item.y);
+        piece.rotation.y = item.rotation;
+        this.buildingGroup.add(piece);
+        // Coarse collision only for bulky pieces so the walk doesn't clip
+        // through them; small items (wc, lavabo) stay walkable-around.
+        const maxDim = Math.max(def.footprint.w, def.footprint.d);
+        if (maxDim >= 0.8) {
+          this.furnitureColliders.push({ x: item.x, y: item.y, r: maxDim * 0.38 });
+        }
+      }
 
       if (!this.touring) {
         // Frame the camera on the building.
@@ -215,6 +361,19 @@ export class Viewer3D {
   setMaterials(assignment: MaterialAssignment): void {
     this.assignment = assignment;
     if (this.plan) this.build(this.plan, assignment);
+  }
+
+  /** Change roof type/slope/visibility. Visibility flips without a rebuild. */
+  setRoof(roof: RoofOptions): void {
+    const needsRebuild =
+      roof.type !== this.roof.type || Math.abs(roof.slope - this.roof.slope) > 1e-3;
+    this.roof = roof;
+    if (needsRebuild && this.plan) {
+      this.build(this.plan);
+      return;
+    }
+    if (this.roofGroup) this.roofGroup.visible = roof.visible;
+    if (this.ceiling) this.ceiling.visible = roof.visible;
   }
 
   private bounds(plan: Plan) {
@@ -233,19 +392,57 @@ export class Viewer3D {
     return { minX, minY, maxX, maxY };
   }
 
-  /** Wall as boxes: solid segments between openings, lintels above, sills below windows. */
-  private buildWall(wall: Wall, wallMat: THREE.Material, glassMat: THREE.Material): THREE.Group {
+  /** True if the plan point lies inside one of the plan's rooms. */
+  private insideRoom(p: Point): boolean {
+    const rooms = this.plan?.rooms;
+    if (!rooms) return false;
+    return rooms.some((r) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h);
+  }
+
+  /** Wall as boxes: solid segments between openings, lintels above, sills
+   *  below windows, door leaves and window frames from the assignment.
+   *  Exterior walls get the facade material on the outside face only. */
+  private buildWall(
+    wall: Wall,
+    innerMat: THREE.Material,
+    outerMat: THREE.Material,
+    glassMat: THREE.Material,
+    doorMat: THREE.Material,
+    frameMat: THREE.Material,
+  ): THREE.Group {
     const group = new THREE.Group();
     group.name = wall.id;
     const len = wallLength(wall);
     const t = wall.thickness;
     const h = wall.height;
+    const angle = Math.atan2(wall.b.y - wall.a.y, wall.b.x - wall.a.x);
 
-    const addBox = (x0: number, x1: number, y0: number, y1: number, mat: THREE.Material) => {
+    // Which local side (+z or -z) faces outside? Probe the plan normal.
+    // Local +z maps to plan normal (-sinA, cosA).
+    let outsideOnPz = false;
+    if (wall.exterior) {
+      const mid = { x: (wall.a.x + wall.b.x) / 2, y: (wall.a.y + wall.b.y) / 2 };
+      const probe = t / 2 + 0.08;
+      const pz = { x: mid.x - Math.sin(angle) * probe, y: mid.y + Math.cos(angle) * probe };
+      outsideOnPz = !this.insideRoom(pz);
+    }
+    // BoxGeometry face order: [+x, -x, +y, -y, +z, -z].
+    const faceMats: THREE.Material[] = wall.exterior
+      ? [
+          outerMat,
+          outerMat,
+          outerMat,
+          outerMat,
+          outsideOnPz ? outerMat : innerMat,
+          outsideOnPz ? innerMat : outerMat,
+        ]
+      : [innerMat, innerMat, innerMat, innerMat, innerMat, innerMat];
+
+    const addBox = (x0: number, x1: number, y0: number, y1: number) => {
       const w = x1 - x0;
       const hh = y1 - y0;
       if (w <= 0.001 || hh <= 0.001) return;
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, hh, t), mat);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, hh, t), faceMats);
       mesh.position.set(x0 + w / 2, y0 + hh / 2, 0);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -264,24 +461,53 @@ export class Viewer3D {
     let cursor = 0;
     for (const o of openings) {
       if (o.start < cursor) continue; // overlapping opening: skip
-      addBox(cursor, o.start, 0, h, wallMat); // solid segment before opening
-      if (o.sill > 0) addBox(o.start, o.end, 0, o.sill, wallMat); // below window
+      addBox(cursor, o.start, 0, h); // solid segment before opening
+      if (o.sill > 0) addBox(o.start, o.end, 0, o.sill); // below window
       const top = o.sill + o.height;
-      if (top < h) addBox(o.start, o.end, top, h, wallMat); // lintel
+      if (top < h) addBox(o.start, o.end, top, h); // lintel
+      const ow = o.end - o.start;
+      const oc = (o.start + o.end) / 2;
       if (o.type === 'window') {
-        const glass = new THREE.Mesh(
-          new THREE.BoxGeometry(o.end - o.start, o.height, 0.04),
-          glassMat,
-        );
-        glass.position.set((o.start + o.end) / 2, o.sill + o.height / 2, 0);
+        const glass = new THREE.Mesh(new THREE.BoxGeometry(ow, o.height, 0.04), glassMat);
+        glass.position.set(oc, o.sill + o.height / 2, 0);
         group.add(glass);
+        // Frame from the windows material: two jambs + head + sill piece.
+        const ft = 0.07;
+        const fd = Math.min(t * 0.7, 0.12);
+        const frame = (fw: number, fh: number, fx: number, fy: number) => {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(fw, fh, fd), frameMat);
+          m.position.set(fx, fy, 0);
+          m.castShadow = true;
+          group.add(m);
+        };
+        frame(ft, o.height, o.start + ft / 2, o.sill + o.height / 2);
+        frame(ft, o.height, o.end - ft / 2, o.sill + o.height / 2);
+        frame(ow, ft, oc, o.sill + o.height - ft / 2);
+        frame(ow, ft, oc, o.sill + ft / 2);
+      } else {
+        // Door leaf from the doors material, ajar-looking: slightly inset,
+        // leaves a visible gap so the tour can still pass through.
+        const leaf = new THREE.Mesh(
+          new THREE.BoxGeometry(Math.max(0.05, ow - 0.06), o.height - 0.04, 0.045),
+          doorMat,
+        );
+        leaf.position.set(oc - ow * 0.32, (o.height - 0.04) / 2, t / 2 + 0.03);
+        leaf.rotation.y = -1.15; // opened leaf, hinged look
+        leaf.castShadow = true;
+        group.add(leaf);
+        // Door frame jambs.
+        const jt = 0.06;
+        for (const fx of [o.start + jt / 2, o.end - jt / 2]) {
+          const jamb = new THREE.Mesh(new THREE.BoxGeometry(jt, o.height, t + 0.02), doorMat);
+          jamb.position.set(fx, o.height / 2, 0);
+          group.add(jamb);
+        }
       }
       cursor = o.end;
     }
-    addBox(cursor, len, 0, h, wallMat); // remaining solid segment
+    addBox(cursor, len, 0, h); // remaining solid segment
 
     // Place in world: rotate around Y, plan y -> world z.
-    const angle = Math.atan2(wall.b.y - wall.a.y, wall.b.x - wall.a.x);
     group.rotation.y = -angle;
     group.position.set(wall.a.x, 0, wall.a.y);
     return group;
@@ -367,7 +593,8 @@ export class Viewer3D {
     pos.y = EYE_HEIGHT;
   }
 
-  /** Circle-vs-walls collision; door openings let you through. */
+  /** Circle-vs-walls collision; door openings let you through. Bulky
+   *  furniture pieces are coarse circle colliders (Fase 10). */
   private collides(x: number, y: number): boolean {
     if (!this.plan) return false;
     for (const w of this.plan.walls) {
@@ -382,6 +609,9 @@ export class Viewer3D {
           offset < o.offset + o.width / 2 - 0.05,
       );
       if (!inDoor) return true;
+    }
+    for (const c of this.furnitureColliders) {
+      if (Math.hypot(x - c.x, y - c.y) < c.r + BODY_RADIUS * 0.6) return true;
     }
     return false;
   }
@@ -409,6 +639,10 @@ export class Viewer3D {
     document.removeEventListener('mousemove', this.onMouseMove);
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
     window.removeEventListener('pointerup', this.onPointerUp);
+    disposeSubtree(this.scene);
+    this.envTexture.dispose();
+    this.groundTexture.dispose();
+    this.pmrem.dispose();
     this.controls.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement === this.container) {

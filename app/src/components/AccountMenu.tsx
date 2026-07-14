@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Crown, FolderOpen, Loader2, LogOut, Save, Trash2, UserRound } from 'lucide-react'
+import {
+  Building2,
+  Crown,
+  FolderOpen,
+  Link2,
+  Link2Off,
+  Loader2,
+  LogOut,
+  Save,
+  Trash2,
+  UserRound,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import {
   ApiError,
@@ -10,7 +21,11 @@ import {
   logout,
   me,
   register,
+  revokeShare,
   saveProject,
+  setLocalStudioBrand,
+  shareProject,
+  updateStudioSettings,
   upgradePlan,
   type ProjectData,
   type ProjectSummary,
@@ -44,9 +59,20 @@ export function AccountMenu({ getProjectData, onProjectLoaded }: Props) {
   const [password, setPassword] = useState('')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [projectName, setProjectName] = useState('')
+  const [studioName, setStudioName] = useState('')
+  const [studioLogo, setStudioLogo] = useState('')
+
+  const syncUser = (u: User | null) => {
+    setUser(u)
+    if (u) {
+      setStudioName(u.studioName ?? '')
+      setStudioLogo(u.studioLogo ?? '')
+      setLocalStudioBrand({ studioName: u.studioName ?? '', studioLogo: u.studioLogo ?? '' })
+    }
+  }
 
   useEffect(() => {
-    me().then(setUser).catch(() => {})
+    me().then(syncUser).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -59,7 +85,7 @@ export function AccountMenu({ getProjectData, onProjectLoaded }: Props) {
     setBusy(true)
     try {
       const u = mode === 'login' ? await login(email, password) : await register(email, password)
-      setUser(u)
+      syncUser(u)
       setPassword('')
       toast.success(mode === 'login' ? 'Bentornato!' : 'Account creato')
     } catch (err) {
@@ -138,6 +164,56 @@ export function AccountMenu({ getProjectData, onProjectLoaded }: Props) {
     toast.success('Disconnesso')
   }
 
+  const onShare = async (id: string, name: string) => {
+    try {
+      const token = await shareProject(id)
+      const url = `${window.location.origin}/share/${token}`
+      await navigator.clipboard.writeText(url).catch(() => {})
+      toast.success(`Link di condivisione per "${name}" copiato`, {
+        description: 'Chi apre il link vede il progetto in sola lettura, senza account.',
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Condivisione non riuscita')
+    }
+  }
+
+  const onRevoke = async (id: string, name: string) => {
+    try {
+      await revokeShare(id)
+      toast.success(`Accesso revocato per "${name}"`, {
+        description: 'I link condivisi in precedenza non funzionano più.',
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Revoca non riuscita')
+    }
+  }
+
+  const onLogoFile = (file: File | undefined) => {
+    if (!file) return
+    if (file.size > 300_000) {
+      toast.error('Logo troppo grande', { description: 'Usa un’immagine sotto i 300 KB.' })
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => setStudioLogo(String(reader.result))
+    reader.readAsDataURL(file)
+  }
+
+  const onSaveStudio = async () => {
+    setBusy(true)
+    try {
+      const u = await updateStudioSettings({ studioName, studioLogo })
+      syncUser(u)
+      toast.success('Impostazioni studio salvate', {
+        description: 'Logo e nome compaiono nel PDF e nella pagina condivisa.',
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Salvataggio non riuscito')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <>
       <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
@@ -147,7 +223,7 @@ export function AccountMenu({ getProjectData, onProjectLoaded }: Props) {
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-h-[88vh] max-w-md overflow-y-auto">
           {!user ? (
             <>
               <DialogHeader>
@@ -262,6 +338,26 @@ export function AccountMenu({ getProjectData, onProjectLoaded }: Props) {
                         <Button
                           variant="ghost"
                           size="icon"
+                          className="size-7 text-muted-foreground hover:text-primary"
+                          aria-label={`Condividi ${p.name} con un link pubblico`}
+                          title="Condividi (copia link pubblico)"
+                          onClick={() => onShare(p.id, p.name)}
+                        >
+                          <Link2 aria-hidden />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground hover:text-destructive"
+                          aria-label={`Revoca il link di ${p.name}`}
+                          title="Revoca link condiviso"
+                          onClick={() => onRevoke(p.id, p.name)}
+                        >
+                          <Link2Off aria-hidden />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           className="size-7 text-muted-foreground hover:text-destructive"
                           aria-label={`Elimina ${p.name}`}
                           onClick={() => onDelete(p.id)}
@@ -272,6 +368,45 @@ export function AccountMenu({ getProjectData, onProjectLoaded }: Props) {
                     ))}
                   </ul>
                 )}
+              </div>
+
+              <Separator />
+
+              <div className="flex flex-col gap-2">
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  <Building2 className="size-4" aria-hidden /> Il tuo studio
+                </span>
+                <p className="text-xs text-muted-foreground">
+                  Logo e nome compaiono nell’intestazione del PDF esportato e nella pagina
+                  condivisa col cliente.
+                </p>
+                <div className="flex items-center gap-2">
+                  {studioLogo ? (
+                    <img src={studioLogo} alt="Logo studio" className="h-9 w-auto rounded border" />
+                  ) : (
+                    <div className="flex h-9 w-12 items-center justify-center rounded border text-[10px] text-muted-foreground">
+                      logo
+                    </div>
+                  )}
+                  <Input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    aria-label="Carica logo studio"
+                    className="text-xs"
+                    onChange={(e) => onLogoFile(e.target.files?.[0])}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={studioName}
+                    onChange={(e) => setStudioName(e.target.value)}
+                    placeholder="Es. Studio Rossi Architettura"
+                    aria-label="Nome studio"
+                  />
+                  <Button variant="secondary" onClick={onSaveStudio} disabled={busy}>
+                    Salva
+                  </Button>
+                </div>
               </div>
 
               <Separator />

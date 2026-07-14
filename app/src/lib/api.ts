@@ -13,6 +13,9 @@ export interface User {
   id: string;
   email: string;
   plan: 'free' | 'pro';
+  /** Studio branding (Fase 11): used by share pages and PDF export. */
+  studioName?: string;
+  studioLogo?: string; // data URL
 }
 
 export interface ProjectSummary {
@@ -195,4 +198,70 @@ export async function deleteProject(id: string): Promise<void> {
 export async function upgradePlan(): Promise<User> {
   const res = await request<{ user: User }>('/api/billing/upgrade', { method: 'POST' });
   return res.user;
+}
+
+/* --------------------------- sharing (Fase 11) --------------------------- */
+
+/** Generate (or return the existing) public share token for a project. */
+export async function shareProject(id: string): Promise<string> {
+  const res = await request<{ shareToken: string }>(`/api/projects/${id}/share`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  return res.shareToken;
+}
+
+export async function revokeShare(id: string): Promise<void> {
+  await request(`/api/projects/${id}/share`, {
+    method: 'POST',
+    body: JSON.stringify({ revoke: true }),
+  });
+}
+
+export interface SharedProject {
+  name: string;
+  data: ProjectData;
+  studioName: string;
+  studioLogo: string;
+}
+
+/** Public read-only project fetch — no auth required. */
+export async function loadSharedProject(shareToken: string): Promise<SharedProject> {
+  const res = await request<{ project: SharedProject }>(`/api/public/${shareToken}`);
+  return res.project;
+}
+
+/* ----------------------- account settings (Fase 11) ---------------------- */
+
+export async function updateStudioSettings(settings: {
+  studioName?: string;
+  studioLogo?: string;
+}): Promise<User> {
+  const res = await request<{ user: User }>('/api/account/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(settings),
+  });
+  return res.user;
+}
+
+// Local mirror of the studio branding so the PDF export works even before
+// login / while the backend is off. Synced on login and on settings save.
+const STUDIO_KEY = 'planimetrieai.studio';
+
+export interface StudioBrand {
+  studioName: string;
+  studioLogo: string;
+}
+
+export function getLocalStudioBrand(): StudioBrand {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STUDIO_KEY) ?? '{}');
+    return { studioName: raw.studioName ?? '', studioLogo: raw.studioLogo ?? '' };
+  } catch {
+    return { studioName: '', studioLogo: '' };
+  }
+}
+
+export function setLocalStudioBrand(brand: StudioBrand): void {
+  localStorage.setItem(STUDIO_KEY, JSON.stringify(brand));
 }

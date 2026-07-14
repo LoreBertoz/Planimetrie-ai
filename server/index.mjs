@@ -49,7 +49,13 @@ function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(candidate, 'hex'));
 }
 function publicUser(user) {
-  return { id: user.id, email: user.email, plan: user.plan };
+  return {
+    id: user.id,
+    email: user.email,
+    plan: user.plan,
+    studioName: user.studioName ?? '',
+    studioLogo: user.studioLogo ?? '',
+  };
 }
 function authUser(req) {
   const header = req.headers.authorization ?? '';
@@ -167,6 +173,65 @@ app.delete('/api/projects/:id', (req, res) => {
   db.projects.splice(index, 1);
   saveDb(db);
   res.json({ ok: true });
+});
+
+/* ------------------------- sharing (Fase 11) ---------------------------- */
+
+// Generate or revoke the public read-only share token of a project.
+app.post('/api/projects/:id/share', (req, res) => {
+  const user = requireAuth(req, res);
+  if (!user) return;
+  const project = db.projects.find((p) => p.id === req.params.id && p.userId === user.id);
+  if (!project) return res.status(404).json({ error: 'Progetto non trovato' });
+  const { revoke } = req.body ?? {};
+  if (revoke) {
+    delete project.shareToken;
+  } else if (!project.shareToken) {
+    project.shareToken = crypto.randomBytes(16).toString('hex');
+  }
+  saveDb(db);
+  res.json({ shareToken: project.shareToken ?? null });
+});
+
+// Public read-only access: no login, plan data + studio branding only.
+app.get('/api/public/:shareToken', (req, res) => {
+  const project = db.projects.find(
+    (p) => p.shareToken && p.shareToken === req.params.shareToken,
+  );
+  if (!project) return res.status(404).json({ error: 'Link non valido o revocato' });
+  const owner = db.users.find((u) => u.id === project.userId);
+  res.json({
+    project: {
+      name: project.name,
+      data: project.data,
+      studioName: owner?.studioName ?? '',
+      studioLogo: owner?.studioLogo ?? '',
+    },
+  });
+});
+
+/* --------------------- account settings (Fase 11) ----------------------- */
+
+// Studio branding used by the shared page and the branded PDF export.
+app.patch('/api/account/settings', (req, res) => {
+  const user = requireAuth(req, res);
+  if (!user) return;
+  const { studioName, studioLogo } = req.body ?? {};
+  if (studioName !== undefined) {
+    if (typeof studioName !== 'string' || studioName.length > 60) {
+      return res.status(400).json({ error: 'Nome studio non valido (max 60 caratteri)' });
+    }
+    user.studioName = studioName.trim();
+  }
+  if (studioLogo !== undefined) {
+    if (typeof studioLogo !== 'string' || studioLogo.length > 400_000 ||
+        (studioLogo !== '' && !studioLogo.startsWith('data:image/'))) {
+      return res.status(400).json({ error: 'Logo non valido (immagine, max ~300KB)' });
+    }
+    user.studioLogo = studioLogo;
+  }
+  saveDb(db);
+  res.json({ user: publicUser(user) });
 });
 
 /* ------------------------------- billing -------------------------------- */

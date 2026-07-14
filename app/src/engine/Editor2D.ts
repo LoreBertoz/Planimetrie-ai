@@ -1,11 +1,19 @@
 // Canvas-based 2D floor plan editor (ported from prototype P1): draw walls,
 // place doors/windows, select/delete, pan/zoom, grid snap, live measurements.
+// Fase 10 adds furniture: place, drag, rotate (R), delete.
 // Operates on the wall-based Plan; the host is notified via onChange.
 
-import type { Opening, Plan, Point, Wall } from '../types';
+import type { FurnitureItem, Opening, Plan, Point, Wall } from '../types';
 import { DEFAULTS, distToWall, pointOnWall, uid, wallDir, wallLength } from '../lib/model';
+import { getFurniture } from '../materials/furnitureCatalog';
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'label';
+
+export interface EditorSelection {
+  wallId: string | null;
+  openingId: string | null;
+  furnitureId: string | null;
+}
 
 const GRID = 0.1; // snap step, meters
 const MAJOR_GRID = 1; // meters
@@ -28,6 +36,8 @@ export class Editor2D {
   onChange: () => void = () => {};
   /** Host shows its own dialog and calls addLabel() with the result. */
   onRequestLabel: (at: Point) => void = () => {};
+  /** Host reacts to selection (wall properties panel, furniture actions). */
+  onSelectionChange: (sel: EditorSelection) => void = () => {};
 
   private scale = 60; // px per meter
   private origin: Point = { x: 80, y: 80 };
@@ -39,6 +49,9 @@ export class Editor2D {
   private originStart: Point = { x: 0, y: 0 };
   selectedWallId: string | null = null;
   selectedOpeningId: string | null = null;
+  selectedFurnitureId: string | null = null;
+  private draggingFurniture = false;
+  private dragOffset: Point = { x: 0, y: 0 };
 
   private ac = new AbortController();
 
@@ -71,9 +84,67 @@ export class Editor2D {
     this.plan = plan;
     this.selectedWallId = null;
     this.selectedOpeningId = null;
+    this.selectedFurnitureId = null;
     this.drawingFrom = null;
+    this.notifySelection();
     this.fitView();
     this.render();
+  }
+
+  private notifySelection(): void {
+    this.onSelectionChange({
+      wallId: this.selectedWallId,
+      openingId: this.selectedOpeningId,
+      furnitureId: this.selectedFurnitureId,
+    });
+  }
+
+  /** Place a catalog piece at a point (default: center of the current view). */
+  placeFurniture(catalogId: string, at?: Point): void {
+    const def = getFurniture(catalogId);
+    if (!def) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const p = at ?? this.toWorld(rect.width / 2, rect.height / 2);
+    const item: FurnitureItem = {
+      id: uid('f'),
+      catalogId,
+      x: Math.round(p.x * 20) / 20,
+      y: Math.round(p.y * 20) / 20,
+      rotation: 0,
+    };
+    if (!this.plan.furniture) this.plan.furniture = [];
+    this.plan.furniture.push(item);
+    this.selectedFurnitureId = item.id;
+    this.selectedWallId = null;
+    this.selectedOpeningId = null;
+    this.notifySelection();
+    this.changed();
+  }
+
+  /** Rotate the selected piece by 90°. */
+  rotateSelectedFurniture(): void {
+    const item = this.plan.furniture?.find((f) => f.id === this.selectedFurnitureId);
+    if (!item) return;
+    item.rotation = (item.rotation + Math.PI / 2) % (Math.PI * 2);
+    this.changed();
+  }
+
+  private hitFurniture(p: Point): FurnitureItem | null {
+    const items = this.plan.furniture ?? [];
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      const def = getFurniture(item.catalogId);
+      if (!def) continue;
+      // Transform to the piece's local frame (inverse of the 3D rotation.y).
+      const dx = p.x - item.x;
+      const dy = p.y - item.y;
+      const cos = Math.cos(item.rotation);
+      const sin = Math.sin(item.rotation);
+      const lx = dx * cos - dy * sin;
+      const lz = dx * sin + dy * cos;
+      if (Math.abs(lx) <= def.footprint.w / 2 && Math.abs(lz) <= def.footprint.d / 2) return item;
+    }
+    return null;
   }
 
   setTool(tool: Tool): void {
@@ -207,15 +278,26 @@ export class Editor2D {
     } else if (this.tool === 'label') {
       this.onRequestLabel(world);
     } else if (this.tool === 'select') {
-      const op = this.hitOpening(world);
-      if (op) {
-        this.selectedOpeningId = op.opening.id;
-        this.selectedWallId = op.wall.id;
-      } else {
-        const hit = this.hitWall(world);
-        this.selectedWallId = hit ? hit.wall.id : null;
+      const furn = this.hitFurniture(world);
+      if (furn) {
+        this.selectedFurnitureId = furn.id;
+        this.selectedWallId = null;
         this.selectedOpeningId = null;
+        this.draggingFurniture = true;
+        this.dragOffset = { x: world.x - furn.x, y: world.y - furn.y };
+      } else {
+        this.selectedFurnitureId = null;
+        const op = this.hitOpening(world);
+        if (op) {
+          this.selectedOpeningId = op.opening.id;
+          this.selectedWallId = op.wall.id;
+        } else {
+          const hit = this.hitWall(world);
+          this.selectedWallId = hit ? hit.wall.id : null;
+          this.selectedOpeningId = null;
+        }
       }
+      this.notifySelection();
       this.render();
     }
   }
@@ -252,11 +334,22 @@ export class Editor2D {
       return;
     }
     this.mouseWorld = this.eventWorld(e);
+    if (this.draggingFurniture && this.selectedFurnitureId) {
+      const item = this.plan.furniture?.find((f) => f.id === this.selectedFurnitureId);
+      if (item) {
+        item.x = Math.round((this.mouseWorld.x - this.dragOffset.x) * 20) / 20;
+        item.y = Math.round((this.mouseWorld.y - this.dragOffset.y) * 20) / 20;
+      }
+    }
     this.render();
   }
 
   private onMouseUp(): void {
     this.panning = false;
+    if (this.draggingFurniture) {
+      this.draggingFurniture = false;
+      this.onChange(); // commit the drag to the host (3D rebuild)
+    }
   }
 
   private onDblClick(): void {
@@ -282,19 +375,33 @@ export class Editor2D {
       this.drawingFrom = null;
       this.selectedWallId = null;
       this.selectedOpeningId = null;
+      this.selectedFurnitureId = null;
+      this.notifySelection();
       this.render();
     }
+    if ((e.key === 'r' || e.key === 'R') && document.activeElement === document.body) {
+      this.rotateSelectedFurniture();
+    }
     if ((e.key === 'Delete' || e.key === 'Backspace') && document.activeElement === document.body) {
-      if (this.selectedOpeningId && this.selectedWallId) {
+      if (this.selectedFurnitureId && this.plan.furniture) {
+        this.plan.furniture = this.plan.furniture.filter(
+          (f) => f.id !== this.selectedFurnitureId,
+        );
+        this.selectedFurnitureId = null;
+        this.notifySelection();
+        this.changed();
+      } else if (this.selectedOpeningId && this.selectedWallId) {
         const wall = this.plan.walls.find((w) => w.id === this.selectedWallId);
         if (wall) {
           wall.openings = wall.openings.filter((o) => o.id !== this.selectedOpeningId);
           this.selectedOpeningId = null;
+          this.notifySelection();
           this.changed();
         }
       } else if (this.selectedWallId) {
         this.plan.walls = this.plan.walls.filter((w) => w.id !== this.selectedWallId);
         this.selectedWallId = null;
+        this.notifySelection();
         this.changed();
       }
     }
@@ -315,6 +422,7 @@ export class Editor2D {
     this.drawGrid(rect.width, rect.height);
 
     for (const w of this.plan.walls) this.drawWall(w);
+    for (const f of this.plan.furniture ?? []) this.drawFurniture(f);
     for (const label of this.plan.labels) {
       const s = this.toScreen(label.at);
       ctx.fillStyle = COLORS.text;
@@ -348,6 +456,40 @@ export class Editor2D {
       ctx.beginPath();
       ctx.arc(sp.x, sp.y, 4, 0, Math.PI * 2);
       ctx.stroke();
+    }
+  }
+
+  /** Furniture footprint: rotated rect + short name; selection highlighted. */
+  private drawFurniture(item: FurnitureItem): void {
+    const def = getFurniture(item.catalogId);
+    if (!def) return;
+    const ctx = this.ctx;
+    const s = this.toScreen({ x: item.x, y: item.y });
+    const selected = item.id === this.selectedFurnitureId;
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    // Canvas rotation matching the 3D rotation.y (plan y = world z).
+    ctx.rotate(-item.rotation);
+    const w = def.footprint.w * this.scale;
+    const d = def.footprint.d * this.scale;
+    ctx.fillStyle = selected ? 'rgba(179, 89, 44, 0.14)' : 'rgba(77, 107, 82, 0.10)';
+    ctx.strokeStyle = selected ? COLORS.accent : COLORS.primary;
+    ctx.lineWidth = selected ? 2 : 1.2;
+    ctx.beginPath();
+    ctx.roundRect(-w / 2, -d / 2, w, d, Math.min(6, w / 6));
+    ctx.fill();
+    ctx.stroke();
+    // Facing tick on the front side (+z local).
+    ctx.beginPath();
+    ctx.moveTo(0, d / 2);
+    ctx.lineTo(0, d / 2 - Math.min(10, d / 3));
+    ctx.stroke();
+    ctx.restore();
+    if (this.scale > 20) {
+      ctx.fillStyle = selected ? COLORS.accent : COLORS.text;
+      ctx.font = '10px Inter Variable, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(def.nome.split(' ')[0], s.x, s.y + 3);
     }
   }
 

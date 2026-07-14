@@ -2,36 +2,36 @@ import { useState } from 'react'
 import { Leaf } from 'lucide-react'
 import {
   CATEGORIA_LABEL,
-  MATERIALS,
   getMaterial,
+  materialsForSurface,
   type MaterialAssignment,
+  type Surface,
 } from '@/materials/catalog'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
-type Surface = keyof MaterialAssignment
-
-const SURFACE_LABEL: Record<Surface, string> = {
-  esterno: 'Muri esterni',
-  interno: 'Muri interni',
-  pavimento: 'Pavimento',
+export const SURFACE_LABEL: Record<Surface, string> = {
+  flooring: 'Pavimento',
+  walls: 'Muri interni',
+  ceiling: 'Soffitto',
+  doors: 'Porte',
+  windows: 'Finestre',
+  exteriorWalls: 'Muri esterni',
 }
+
+const SURFACES: Surface[] = ['flooring', 'walls', 'ceiling', 'doors', 'windows', 'exteriorWalls']
 
 interface Props {
   assignment: MaterialAssignment
   onChange: (assignment: MaterialAssignment) => void
 }
 
-/** Visual natural-material library; hemp entries are featured first. */
+/** Visual natural-material library over the six independent surfaces;
+ *  hemp entries are featured first. */
 export function MaterialPicker({ assignment, onChange }: Props) {
-  const [surface, setSurface] = useState<Surface>('esterno')
+  const [surface, setSurface] = useState<Surface>('flooring')
   const current = getMaterial(assignment[surface])
-
-  // Hemp first — it's the product's signature.
-  const ordered = [...MATERIALS].sort(
-    (a, b) => Number(b.inEvidenza ?? false) - Number(a.inEvidenza ?? false),
-  )
+  const materials = materialsForSurface(surface)
 
   return (
     <div className="flex flex-col gap-3">
@@ -40,18 +40,27 @@ export function MaterialPicker({ assignment, onChange }: Props) {
         Materiali naturali
       </div>
 
-      <Tabs value={surface} onValueChange={(v) => setSurface(v as Surface)}>
-        <TabsList className="w-full">
-          {(Object.keys(SURFACE_LABEL) as Surface[]).map((s) => (
-            <TabsTrigger key={s} value={s} className="flex-1 text-xs">
-              {SURFACE_LABEL[s]}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1" role="tablist">
+        {SURFACES.map((s) => (
+          <button
+            key={s}
+            role="tab"
+            aria-selected={surface === s}
+            onClick={() => setSurface(s)}
+            className={cn(
+              'rounded-md px-1.5 py-1 text-[11px] font-medium transition-colors',
+              surface === s
+                ? 'bg-card text-foreground shadow-soft'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {SURFACE_LABEL[s]}
+          </button>
+        ))}
+      </div>
 
       <div className="grid grid-cols-2 gap-2">
-        {ordered.map((m) => {
+        {materials.map((m) => {
           const active = assignment[surface] === m.id
           return (
             <button

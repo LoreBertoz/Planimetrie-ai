@@ -4,6 +4,11 @@
 
 import type { Door, FloorPlan, Opening, Plan, Point, Wall, Window } from '../types';
 import { DEFAULTS, uid, wallLength } from './model';
+import {
+  DEFAULT_EXTERIOR_ASSEMBLY,
+  DEFAULT_INTERIOR_ASSEMBLY,
+  getAssembly,
+} from '../materials/wallAssemblies';
 
 const EPS = 1e-6;
 
@@ -148,16 +153,23 @@ function placeOpening(
 /** Convert the generator's FloorPlan into a wall-based Plan for editor + 3D. */
 export function floorplanToWalls(fp: FloorPlan): Plan {
   const runs = buildRuns(fp.rooms);
+  // Realistic default assemblies (Fase 9): load-bearing + hemp coat outside,
+  // brick partition inside. Fixed numbers from model.ts stay as fallback.
+  const extAssembly = getAssembly(DEFAULT_EXTERIOR_ASSEMBLY);
+  const intAssembly = getAssembly(DEFAULT_INTERIOR_ASSEMBLY);
   const walls: Wall[] = runs.map((r) => {
     const exterior = (r.side1 === -1) !== (r.side2 === -1);
+    const assembly = exterior ? extAssembly : intAssembly;
     return {
       id: uid('w'),
       a: r.a,
       b: r.b,
-      thickness: exterior ? DEFAULTS.wallThicknessExt : DEFAULTS.wallThicknessInt,
+      thickness:
+        assembly?.thickness ?? (exterior ? DEFAULTS.wallThicknessExt : DEFAULTS.wallThicknessInt),
       height: DEFAULTS.wallHeight,
       openings: [],
       exterior,
+      assemblyId: assembly?.id,
     };
   });
 
@@ -187,5 +199,6 @@ export function floorplanToWalls(fp: FloorPlan): Plan {
       at: { x: r.x + r.w / 2, y: r.y + r.h / 2 },
     })),
     rooms: fp.rooms,
+    furniture: [],
   };
 }
