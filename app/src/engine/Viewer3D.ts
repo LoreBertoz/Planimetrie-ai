@@ -19,6 +19,7 @@ import {
 } from '../materials/catalog';
 import { getFurniture } from '../materials/furnitureCatalog';
 import { buildRoofGroup } from './roof';
+import { applyTextureSet, boxUVsToMeters, planeUVsToMeters } from './textures';
 
 const GLASS_COLOR = 0xaecfc2;
 const EYE_HEIGHT = 1.6;
@@ -29,53 +30,38 @@ const MAX_ROOM_LIGHTS = 12;
 function toStandard(defId: string | undefined, fallback: number): THREE.MeshStandardMaterial {
   const def = getMaterial(defId);
   if (!def) return new THREE.MeshStandardMaterial({ color: fallback, roughness: 0.9 });
-  return new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(def.pbr.color),
     roughness: def.pbr.roughness,
     metalness: def.pbr.metalness,
   });
+  // Real PBR texture set when the catalog provides one (Fase 12).
+  if (def.pbr.textureSet) {
+    applyTextureSet(mat, def.pbr.textureSet, def.pbr.textureSize ?? 2, def.pbr.tint);
+  }
+  return mat;
 }
 
 /** Recursively free GPU resources of a subtree (three.js disposal pattern).
- *  Prevents leaks/flicker after repeated regenerations in one session. */
+ *  Prevents leaks/flicker after repeated regenerations in one session.
+ *  Textures flagged userData.shared belong to the global cache and are
+ *  reused across rebuilds — never dispose those. */
 function disposeSubtree(root: THREE.Object3D): void {
+  const freeTex = (t: THREE.Texture | null | undefined) => {
+    if (t && !t.userData.shared) t.dispose();
+  };
   root.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (mesh.geometry) mesh.geometry.dispose();
     const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
     for (const m of mats) {
       const sm = m as THREE.MeshStandardMaterial;
-      sm.map?.dispose();
-      sm.normalMap?.dispose();
-      sm.roughnessMap?.dispose();
+      freeTex(sm.map);
+      freeTex(sm.normalMap);
+      freeTex(sm.roughnessMap);
       m.dispose();
     }
   });
-}
-
-/** Tileable grass-like texture generated on a canvas (no external assets). */
-function makeGrassTexture(): THREE.Texture {
-  const size = 128;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#9fb086';
-  ctx.fillRect(0, 0, size, size);
-  // deterministic speckle (simple LCG so builds stay reproducible)
-  let s = 42;
-  const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 0xffffffff);
-  for (let i = 0; i < 1600; i++) {
-    const shade = 0.85 + rnd() * 0.3;
-    ctx.fillStyle = `rgb(${Math.round(140 * shade)}, ${Math.round(165 * shade)}, ${Math.round(118 * shade)})`;
-    ctx.fillRect(Math.floor(rnd() * size), Math.floor(rnd() * size), 2, 2);
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(80, 80);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
 }
 
 interface Collider {
@@ -95,7 +81,6 @@ export class Viewer3D {
   private roomLights: THREE.Group;
   private pmrem: THREE.PMREMGenerator;
   private envTexture: THREE.Texture;
-  private groundTexture: THREE.Texture;
   private resizeObserver: ResizeObserver;
   private container: HTMLElement;
 
@@ -183,11 +168,12 @@ export class Viewer3D {
     sun.shadow.bias = -0.0002;
     this.scene.add(sun);
 
-    this.groundTexture = makeGrassTexture();
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(400, 400),
-      new THREE.MeshStandardMaterial({ map: this.groundTexture, roughness: 1 }),
-    );
+    // Real grass PBR set on a meter-scaled plane (Fase 12).
+    const groundGeo = new THREE.PlaneGeometry(400, 400);
+    planeUVsToMeters(groundGeo, 400, 400);
+    const groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
+    applyTextureSet(groundMat, 'grass', 2.5, '#dfe3d0'); // soften the green
+    const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.06;
     ground.receiveShadow = true;
@@ -255,10 +241,11 @@ export class Viewer3D {
     const frameMat = toStandard(this.assignment.windows, 0x9a7a4f);
     const glassMat = new THREE.MeshStandardMaterial({
       color: GLASS_COLOR,
-      roughness: 0.1,
-      metalness: 0.2,
+      roughness: 0.05,
+      metalness: 0.3,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.4,
+      envMapIntensity: 1.5, // sharper IBL reflections on glazing
     });
 
     for (const wall of plan.walls) {
@@ -281,10 +268,9 @@ export class Viewer3D {
       // Floor slab under the bounding box of all walls.
       const t = 0.1;
       const floorMat = toStandard(plan.floorMaterialId ?? this.assignment.flooring, 0xd8cdb8);
-      const floor = new THREE.Mesh(
-        new THREE.BoxGeometry(maxX - minX + 0.4, t, maxY - minY + 0.4),
-        floorMat,
-      );
+      const floorGeo = new THREE.BoxGeometry(maxX - minX + 0.4, t, maxY - minY + 0.4);
+      boxUVsToMeters(floorGeo, maxX - minX + 0.4, t, maxY - minY + 0.4);
+      const floor = new THREE.Mesh(floorGeo, floorMat);
       floor.position.set((minX + maxX) / 2, -t / 2 + 0.01, (minY + maxY) / 2);
       floor.receiveShadow = true;
       floor.name = 'floor';
@@ -292,10 +278,9 @@ export class Viewer3D {
 
       // Ceiling slab at wall height (Fase 8), textured via assignment.ceiling.
       const ceilMat = toStandard(this.assignment.ceiling, 0xf2efe7);
-      const ceiling = new THREE.Mesh(
-        new THREE.BoxGeometry(maxX - minX + 0.1, 0.08, maxY - minY + 0.1),
-        ceilMat,
-      );
+      const ceilGeo = new THREE.BoxGeometry(maxX - minX + 0.1, 0.08, maxY - minY + 0.1);
+      boxUVsToMeters(ceilGeo, maxX - minX + 0.1, 0.08, maxY - minY + 0.1);
+      const ceiling = new THREE.Mesh(ceilGeo, ceilMat);
       ceiling.position.set((minX + maxX) / 2, wallHeight + 0.04, (minY + maxY) / 2);
       ceiling.receiveShadow = true;
       ceiling.name = 'ceiling';
@@ -309,11 +294,12 @@ export class Viewer3D {
           ? plan.rooms
           : [{ x: minX, y: minY, w: maxX - minX, h: maxY - minY }];
       const roofMat = new THREE.MeshStandardMaterial({
-        color: 0xa1583f, // coppi
+        color: 0xa1583f, // coppi fallback
         roughness: 0.9,
         metalness: 0,
         side: THREE.DoubleSide,
       });
+      applyTextureSet(roofMat, 'roof-tiles', 2); // clay tiles (RoofingTiles014A)
       const gableMat = toStandard(this.assignment.exteriorWalls, 0xf2efe8);
       gableMat.side = THREE.DoubleSide;
       const exteriorWalls = plan.walls.filter((w) => w.exterior);
@@ -442,7 +428,11 @@ export class Viewer3D {
       const w = x1 - x0;
       const hh = y1 - y0;
       if (w <= 0.001 || hh <= 0.001) return;
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, hh, t), faceMats);
+      const geo = new THREE.BoxGeometry(w, hh, t);
+      // Meter-scaled UVs with offsets so segments/lintels continue the
+      // pattern along the wall instead of restarting at every opening.
+      boxUVsToMeters(geo, w, hh, t, x0, y0);
+      const mesh = new THREE.Mesh(geo, faceMats);
       mesh.position.set(x0 + w / 2, y0 + hh / 2, 0);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -487,10 +477,9 @@ export class Viewer3D {
       } else {
         // Door leaf from the doors material, ajar-looking: slightly inset,
         // leaves a visible gap so the tour can still pass through.
-        const leaf = new THREE.Mesh(
-          new THREE.BoxGeometry(Math.max(0.05, ow - 0.06), o.height - 0.04, 0.045),
-          doorMat,
-        );
+        const leafGeo = new THREE.BoxGeometry(Math.max(0.05, ow - 0.06), o.height - 0.04, 0.045);
+        boxUVsToMeters(leafGeo, Math.max(0.05, ow - 0.06), o.height - 0.04, 0.045);
+        const leaf = new THREE.Mesh(leafGeo, doorMat);
         leaf.position.set(oc - ow * 0.32, (o.height - 0.04) / 2, t / 2 + 0.03);
         leaf.rotation.y = -1.15; // opened leaf, hinged look
         leaf.castShadow = true;
@@ -641,7 +630,6 @@ export class Viewer3D {
     window.removeEventListener('pointerup', this.onPointerUp);
     disposeSubtree(this.scene);
     this.envTexture.dispose();
-    this.groundTexture.dispose();
     this.pmrem.dispose();
     this.controls.dispose();
     this.renderer.dispose();

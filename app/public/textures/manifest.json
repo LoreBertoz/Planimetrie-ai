@@ -1,0 +1,58 @@
+{
+  "plaster-fine": {
+    "assetId": "Plaster003",
+    "source": "ambientCG (CC0)"
+  },
+  "plaster-rough": {
+    "assetId": "Plaster001",
+    "source": "ambientCG (CC0)"
+  },
+  "fabric-weave": {
+    "assetId": "Carpet016",
+    "source": "ambientCG (CC0)"
+  },
+  "wood-oak": {
+    "assetId": "WoodFloor051",
+    "source": "ambientCG (CC0)"
+  },
+  "wood-light": {
+    "assetId": "WoodFloor064",
+    "source": "ambientCG (CC0)"
+  },
+  "wood-dark": {
+    "assetId": "WoodFloor046",
+    "source": "ambientCG (CC0)"
+  },
+  "wood-planks": {
+    "assetId": "WoodSiding008",
+    "source": "ambientCG (CC0)"
+  },
+  "cork": {
+    "assetId": "Cork004",
+    "source": "ambientCG (CC0)"
+  },
+  "terracotta": {
+    "assetId": "GlazedTerracotta001",
+    "source": "ambientCG (CC0)"
+  },
+  "stone-tiles": {
+    "assetId": "Travertine009",
+    "source": "ambientCG (CC0)"
+  },
+  "stone-wall": {
+    "assetId": "Tiles143",
+    "source": "ambientCG (CC0)"
+  },
+  "concrete": {
+    "assetId": "Concrete034",
+    "source": "ambientCG (CC0)"
+  },
+  "roof-tiles": {
+    "assetId": "RoofingTiles014A",
+    "source": "ambientCG (CC0)"
+  },
+  "grass": {
+    "assetId": "Grass005",
+    "source": "ambientCG (CC0)"
+  }
+}

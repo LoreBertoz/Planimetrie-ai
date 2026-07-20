@@ -30,12 +30,15 @@ export interface MaterialDef {
   /** Short sales-oriented description shown in the picker. */
   descrizione: string;
   pbr: {
-    color: string; // hex
+    color: string; // hex (swatch + no-texture fallback)
     roughness: number;
     metalness: number;
-    map?: string; // texture path under public/textures/ (optional)
-    normalMap?: string;
-    roughnessMap?: string;
+    /** PBR set folder under public/textures/<set>/ (color/normal/roughness). */
+    textureSet?: string;
+    /** Meters covered by one texture tile (default 2). */
+    textureSize?: number;
+    /** Tint multiplied over the photo albedo (default white = neutral). */
+    tint?: string;
   };
   /** Surfaces this material makes sense on; undefined = any surface. */
   superfici?: Surface[];
@@ -69,7 +72,7 @@ export const MATERIALS: MaterialDef[] = [
     categoria: 'canapa',
     descrizione:
       'Biocomposito di canapulo e calce: muri traspiranti, isolamento naturale e comfort in ogni stagione. Il materiale simbolo della casa sana.',
-    pbr: { color: '#d9d2bf', roughness: 0.95, metalness: 0 },
+    pbr: { color: '#d9d2bf', roughness: 0.95, metalness: 0, textureSet: 'plaster-rough', textureSize: 2.5, tint: '#d9d2bf' },
     superfici: ['walls', 'exteriorWalls', 'ceiling'],
     inEvidenza: true,
   },
@@ -79,7 +82,7 @@ export const MATERIALS: MaterialDef[] = [
     categoria: 'canapa',
     descrizione:
       'Isolante in fibra vegetale ad alte prestazioni: pareti che respirano, acustica migliore, zero sostanze tossiche.',
-    pbr: { color: '#cbb98f', roughness: 0.9, metalness: 0 },
+    pbr: { color: '#cbb98f', roughness: 0.9, metalness: 0, textureSet: 'fabric-weave', textureSize: 1.2, tint: '#cbb98f' },
     superfici: ['walls', 'ceiling'],
     inEvidenza: true,
   },
@@ -89,7 +92,7 @@ export const MATERIALS: MaterialDef[] = [
     categoria: 'canapa',
     descrizione:
       'Finitura naturale calda e materica, regola l’umidità e valorizza la luce degli ambienti.',
-    pbr: { color: '#e3dcc8', roughness: 0.92, metalness: 0 },
+    pbr: { color: '#e3dcc8', roughness: 0.92, metalness: 0, textureSet: 'plaster-fine', textureSize: 2.5, tint: '#e3dcc8' },
     superfici: ['walls', 'ceiling', 'exteriorWalls'],
     inEvidenza: true,
   },
@@ -99,7 +102,7 @@ export const MATERIALS: MaterialDef[] = [
     categoria: 'canapa',
     descrizione:
       'La texture viva del biocomposito lasciata a vista in facciata: dichiarazione di sostenibilità immediata.',
-    pbr: { color: '#cfc5aa', roughness: 0.98, metalness: 0 },
+    pbr: { color: '#cfc5aa', roughness: 0.98, metalness: 0, textureSet: 'plaster-rough', textureSize: 2, tint: '#cfc5aa' },
     superfici: ['exteriorWalls', 'walls'],
     inEvidenza: true,
   },
@@ -109,7 +112,7 @@ export const MATERIALS: MaterialDef[] = [
     categoria: 'canapa',
     descrizione:
       'Pannello porta in biocomposito canapa-resina naturale: leggero, robusto, unico sul mercato.',
-    pbr: { color: '#b8a67e', roughness: 0.75, metalness: 0 },
+    pbr: { color: '#b8a67e', roughness: 0.75, metalness: 0, textureSet: 'fabric-weave', textureSize: 1, tint: '#b8a67e' },
     superfici: ['doors'],
     inEvidenza: true,
   },
@@ -118,7 +121,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Rovere naturale',
     categoria: 'legno',
     descrizione: 'Rovere spazzolato: calore immediato e durata generazionale.',
-    pbr: { color: '#b08d5f', roughness: 0.65, metalness: 0 },
+    pbr: { color: '#b08d5f', roughness: 0.65, metalness: 0, textureSet: 'wood-oak', textureSize: 2.2 },
     superfici: ['flooring', 'doors', 'walls'],
   },
   {
@@ -126,7 +129,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Abete sbiancato',
     categoria: 'legno',
     descrizione: 'Essenza chiara nordica, ambienti luminosi e accoglienti.',
-    pbr: { color: '#d7c4a3', roughness: 0.7, metalness: 0 },
+    pbr: { color: '#d7c4a3', roughness: 0.7, metalness: 0, textureSet: 'wood-oak', textureSize: 2.2, tint: '#efe4d2' },
     superfici: ['flooring', 'doors', 'ceiling', 'walls'],
   },
   {
@@ -134,7 +137,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Perline di legno',
     categoria: 'legno',
     descrizione: 'Soffitto a doghe di legno chiaro: atmosfera calda da chalet contemporaneo.',
-    pbr: { color: '#c9ab7c', roughness: 0.72, metalness: 0 },
+    pbr: { color: '#c9ab7c', roughness: 0.72, metalness: 0, textureSet: 'wood-planks', textureSize: 1.8, tint: '#e3cda6' },
     superfici: ['ceiling', 'walls'],
   },
   {
@@ -142,7 +145,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Noce scuro',
     categoria: 'legno',
     descrizione: 'Essenza scura ed elegante per ambienti contemporanei di carattere.',
-    pbr: { color: '#6f5138', roughness: 0.6, metalness: 0 },
+    pbr: { color: '#6f5138', roughness: 0.6, metalness: 0, textureSet: 'wood-dark', textureSize: 2.2 },
     superfici: ['flooring', 'doors', 'walls'],
   },
   {
@@ -150,7 +153,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Facciata ventilata in legno',
     categoria: 'legno',
     descrizione: 'Doghe di larice a vista: involucro naturale che invecchia con eleganza.',
-    pbr: { color: '#a5814f', roughness: 0.8, metalness: 0 },
+    pbr: { color: '#a5814f', roughness: 0.8, metalness: 0, textureSet: 'wood-planks', textureSize: 2.4 },
     superfici: ['exteriorWalls'],
   },
   {
@@ -158,7 +161,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Sughero naturale',
     categoria: 'sughero',
     descrizione: 'Pavimento caldo al tatto, silenzioso ed elastico. 100% rinnovabile.',
-    pbr: { color: '#c19a6b', roughness: 0.85, metalness: 0 },
+    pbr: { color: '#c19a6b', roughness: 0.85, metalness: 0, textureSet: 'cork', textureSize: 1.2 },
     superfici: ['flooring', 'walls'],
   },
   {
@@ -166,7 +169,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Calce rasata',
     categoria: 'calce',
     descrizione: 'Superficie minerale liscia e luminosa, antibatterica per natura.',
-    pbr: { color: '#ece8dd', roughness: 0.8, metalness: 0 },
+    pbr: { color: '#ece8dd', roughness: 0.8, metalness: 0, textureSet: 'plaster-fine', textureSize: 2.5, tint: '#ece8dd' },
     superfici: ['walls', 'ceiling', 'exteriorWalls'],
   },
   {
@@ -174,7 +177,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Intonaco calce tono terra',
     categoria: 'calce',
     descrizione: 'Facciata in calce nei toni caldi della terra: mediterranea e senza tempo.',
-    pbr: { color: '#d8b98f', roughness: 0.88, metalness: 0 },
+    pbr: { color: '#d8b98f', roughness: 0.88, metalness: 0, textureSet: 'plaster-rough', textureSize: 2.5, tint: '#d8b98f' },
     superfici: ['exteriorWalls', 'walls'],
   },
   {
@@ -182,7 +185,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Intonaco calce tono sabbia',
     categoria: 'calce',
     descrizione: 'Tono sabbia luminoso che riflette la luce del sud.',
-    pbr: { color: '#e6d7b8', roughness: 0.88, metalness: 0 },
+    pbr: { color: '#e6d7b8', roughness: 0.88, metalness: 0, textureSet: 'plaster-rough', textureSize: 2.5, tint: '#e6d7b8' },
     superfici: ['exteriorWalls', 'walls'],
   },
   {
@@ -190,7 +193,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Intonaco in terra cruda',
     categoria: 'terra',
     descrizione: 'Tonalità terrose e regolazione naturale dell’umidità: benessere abitativo autentico.',
-    pbr: { color: '#c8a678', roughness: 0.95, metalness: 0 },
+    pbr: { color: '#c8a678', roughness: 0.95, metalness: 0, textureSet: 'plaster-rough', textureSize: 2, tint: '#c8a678' },
     superfici: ['walls', 'ceiling'],
   },
   {
@@ -198,7 +201,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Cotto in terracotta',
     categoria: 'terra',
     descrizione: 'Pavimento in cotto: tradizione mediterranea e calore materico.',
-    pbr: { color: '#b06a45', roughness: 0.85, metalness: 0 },
+    pbr: { color: '#b06a45', roughness: 0.85, metalness: 0, textureSet: 'terracotta', textureSize: 2 },
     superfici: ['flooring'],
   },
   {
@@ -206,7 +209,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Rivestimento in lino',
     categoria: 'lino',
     descrizione: 'Fibra tessile naturale per superfici morbide e sofisticate.',
-    pbr: { color: '#d8cfb8', roughness: 0.9, metalness: 0 },
+    pbr: { color: '#d8cfb8', roughness: 0.9, metalness: 0, textureSet: 'fabric-weave', textureSize: 0.9, tint: '#ddd3bc' },
     superfici: ['walls'],
   },
   {
@@ -214,7 +217,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Pietra calcarea chiara',
     categoria: 'pietra',
     descrizione: 'Eleganza minerale senza tempo, fresca d’estate.',
-    pbr: { color: '#d5d0c4', roughness: 0.75, metalness: 0.05 },
+    pbr: { color: '#d5d0c4', roughness: 0.75, metalness: 0.05, textureSet: 'stone-tiles', textureSize: 1.6 },
     superfici: ['flooring', 'exteriorWalls', 'walls'],
   },
   {
@@ -222,7 +225,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Pietra a vista',
     categoria: 'pietra',
     descrizione: 'Facciata in pietra naturale: solidità e radicamento nel paesaggio.',
-    pbr: { color: '#b5ab99', roughness: 0.92, metalness: 0 },
+    pbr: { color: '#b5ab99', roughness: 0.92, metalness: 0, textureSet: 'stone-wall', textureSize: 2.2 },
     superfici: ['exteriorWalls'],
   },
   {
@@ -230,7 +233,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Cemento chiaro levigato',
     categoria: 'pietra',
     descrizione: 'Superficie continua minerale, base neutra per interni green-industrial.',
-    pbr: { color: '#cfccc2', roughness: 0.55, metalness: 0.05 },
+    pbr: { color: '#cfccc2', roughness: 0.55, metalness: 0.05, textureSet: 'concrete', textureSize: 2.8, tint: '#e6e4dd' },
     superfici: ['flooring', 'walls', 'ceiling'],
   },
   {
@@ -238,7 +241,7 @@ export const MATERIALS: MaterialDef[] = [
     nome: 'Cartongesso rasato bianco',
     categoria: 'cartongesso',
     descrizione: 'Controsoffitto pulito e luminoso, il classico contemporaneo.',
-    pbr: { color: '#f2efe7', roughness: 0.85, metalness: 0 },
+    pbr: { color: '#f2efe7', roughness: 0.85, metalness: 0, textureSet: 'plaster-fine', textureSize: 2.5, tint: '#f2efe7' },
     superfici: ['ceiling', 'walls'],
   },
   {

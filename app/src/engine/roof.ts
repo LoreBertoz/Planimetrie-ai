@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import type { RoofOptions, Wall } from '../types';
+import { boxUVsToMeters, generateWorldUVs } from './textures';
 
 export interface FootRect {
   x: number;
@@ -67,6 +68,7 @@ function geometryFrom(tris: number[]): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(tris, 3));
   geo.computeVertexNormals();
+  generateWorldUVs(geo); // meter-scaled UVs for roof tiles / facade textures
   return geo;
 }
 
@@ -156,10 +158,9 @@ export function buildRoofGroup(
   if (opts.type === 'flat') {
     // Slab over each footprint rect + parapet along the exterior wall runs.
     for (const r of rects) {
-      const slab = new THREE.Mesh(
-        new THREE.BoxGeometry(r.w + PARAPET_T, FLAT_SLAB, r.h + PARAPET_T),
-        roofMat,
-      );
+      const slabGeo = new THREE.BoxGeometry(r.w + PARAPET_T, FLAT_SLAB, r.h + PARAPET_T);
+      boxUVsToMeters(slabGeo, r.w + PARAPET_T, FLAT_SLAB, r.h + PARAPET_T);
+      const slab = new THREE.Mesh(slabGeo, roofMat);
       slab.position.set(r.x + r.w / 2, h0 + FLAT_SLAB / 2, r.y + r.h / 2);
       slab.castShadow = true;
       slab.receiveShadow = true;
@@ -168,10 +169,9 @@ export function buildRoofGroup(
     for (const w of exteriorWalls) {
       const len = Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y);
       if (len < 0.05) continue;
-      const parapet = new THREE.Mesh(
-        new THREE.BoxGeometry(len + PARAPET_T, PARAPET_H, PARAPET_T),
-        gableMat,
-      );
+      const parapetGeo = new THREE.BoxGeometry(len + PARAPET_T, PARAPET_H, PARAPET_T);
+      boxUVsToMeters(parapetGeo, len + PARAPET_T, PARAPET_H, PARAPET_T);
+      const parapet = new THREE.Mesh(parapetGeo, gableMat);
       const angle = Math.atan2(w.b.y - w.a.y, w.b.x - w.a.x);
       parapet.rotation.y = -angle;
       parapet.position.set(
