@@ -202,5 +202,72 @@ export function buildRoofGroup(
     gableMesh.castShadow = true;
     group.add(gableMesh);
   }
+
+  // Eaves fascia boards (Fase 13): warm-white strips under the roof edge.
+  const fasciaMat = new THREE.MeshStandardMaterial({ color: 0xf1ece1, roughness: 0.6 });
+  const FASCIA_H = 0.16;
+  const FASCIA_T = 0.06;
+  for (const r of rects) {
+    const x0 = r.x - OVERHANG;
+    const x1 = r.x + r.w + OVERHANG;
+    const y0 = r.y - OVERHANG;
+    const y1 = r.y + r.h + OVERHANG;
+    const alongX = x1 - x0 >= y1 - y0;
+    const fy = h0 - FASCIA_H / 2 + 0.03;
+    const addFascia = (w: number, d: number, x: number, z: number) => {
+      const geoF = new THREE.BoxGeometry(w, FASCIA_H, d);
+      boxUVsToMeters(geoF, w, FASCIA_H, d);
+      const f = new THREE.Mesh(geoF, fasciaMat);
+      f.position.set(x, fy, z);
+      f.castShadow = true;
+      group.add(f);
+    };
+    const cx = (x0 + x1) / 2;
+    const cz = (y0 + y1) / 2;
+    // Horizontal eaves: both long sides always; short sides only when hipped.
+    if (alongX) {
+      addFascia(x1 - x0, FASCIA_T, cx, y0);
+      addFascia(x1 - x0, FASCIA_T, cx, y1);
+      if (hip) {
+        addFascia(FASCIA_T, y1 - y0, x0, cz);
+        addFascia(FASCIA_T, y1 - y0, x1, cz);
+      }
+    } else {
+      addFascia(FASCIA_T, y1 - y0, x0, cz);
+      addFascia(FASCIA_T, y1 - y0, x1, cz);
+      if (hip) {
+        addFascia(x1 - x0, FASCIA_T, cx, y0);
+        addFascia(x1 - x0, FASCIA_T, cx, y1);
+      }
+    }
+  }
+
+  // Chimney (Fase 13): on the largest footprint rect, near the ridge.
+  const largest = rects.reduce((a, b) => (a.w * a.h >= b.w * b.h ? a : b));
+  {
+    const x0 = largest.x - OVERHANG;
+    const x1 = largest.x + largest.w + OVERHANG;
+    const y0 = largest.y - OVERHANG;
+    const y1 = largest.y + largest.h + OVERHANG;
+    const alongX = x1 - x0 >= y1 - y0;
+    const half = (alongX ? y1 - y0 : x1 - x0) / 2;
+    const ridgeH = h0 + opts.slope * half;
+    const cxC = alongX ? x0 + (x1 - x0) * 0.28 : (x0 + x1) / 2 - half * 0.35;
+    const czC = alongX ? (y0 + y1) / 2 - half * 0.35 : y0 + (y1 - y0) * 0.28;
+    const topY = ridgeH + 0.45;
+    const bodyGeo = new THREE.BoxGeometry(0.52, topY - h0 + 0.4, 0.44);
+    boxUVsToMeters(bodyGeo, 0.52, topY - h0 + 0.4, 0.44);
+    const body = new THREE.Mesh(bodyGeo, gableMat);
+    body.position.set(cxC, (topY + h0 - 0.4) / 2, czC);
+    body.castShadow = true;
+    group.add(body);
+    const cap = new THREE.Mesh(
+      new THREE.BoxGeometry(0.68, 0.07, 0.6),
+      new THREE.MeshStandardMaterial({ color: 0x6b5844, roughness: 0.8 }),
+    );
+    cap.position.set(cxC, topY + 0.035, czC);
+    cap.castShadow = true;
+    group.add(cap);
+  }
   return group;
 }

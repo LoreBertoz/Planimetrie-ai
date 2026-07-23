@@ -72,9 +72,11 @@ Consiglio: **12 + 13 insieme** (si rinforzano), poi rivalutare la 14. La **16 è
 
 ---
 
-## FASE 13 — Resa realistica + dettagli architettonici + decorazioni
+## FASE 13 — Resa realistica + dettagli architettonici + decorazioni — ✅ COMPLETATA (21/07/2026)
 
-**Obiettivo:** far sembrare la casa un edificio vero e "renderizzato", non un modellino a blocchi.
+**Implementata così (performance-first, su feedback committente "texture lente / peso"):** texture alleggerite 12MB→3.3MB (normal/roughness a 512px, albedo a 512 per i materiali a bassa frequenza, 1K solo legni/pietre/coppi; anisotropy 4). Resa: `ACESFilmicToneMapping` (exposure 1.05), pixel ratio cap 2, shadow map 2048 con frustum del sole adattato ai bounds del piano (più nitida e più leggera della 4096 fissa), **GTAO via EffectComposer attivo SOLO in vista orbitale** — il tour renderizza diretto senza post-processing per mantenere il framerate. Dettagli: battiscopa/zoccolo per segmento muro (interrotto alle porte), davanzali in pietra sporgenti, fascia di gronda, comignolo con cappello sul rect maggiore (`roof.ts`), plafoniera emissiva per stanza (spiega la point light), vialetto in pietra dall'ingresso (porta esterna trovata via normale outward), 4 cespugli + 2 alberi low-poly deterministici dai bounds. Tutto dentro `buildingGroup` → incluso nell'export `.glb`. Verificato in browser (esterno orbit + interno tour), zero errori console.
+
+**Obiettivo (originale):** far sembrare la casa un edificio vero e "renderizzato", non un modellino a blocchi.
 
 **Attività — Qualità di resa (post-processing):**
 - Tone mapping cinematografico `ACESFilmicToneMapping` + esposizione calibrata sul renderer.

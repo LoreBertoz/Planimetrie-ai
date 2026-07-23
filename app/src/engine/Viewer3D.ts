@@ -9,6 +9,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import type { Plan, Point, RoofOptions, Wall } from '../types';
 import { DEFAULT_ROOF } from '../types';
 import { wallLength, distToWall } from '../lib/model';
@@ -75,6 +79,9 @@ export class Viewer3D {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private controls: OrbitControls;
+  private composer: EffectComposer;
+  private gtaoPass: GTAOPass;
+  private sun: THREE.DirectionalLight;
   private buildingGroup: THREE.Group;
   private roofGroup: THREE.Group | null = null;
   private ceiling: THREE.Mesh | null = null;
@@ -135,7 +142,10 @@ export class Viewer3D {
     this.container = container;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // Cinematic response curve (Fase 13): filmic highlights, no clipping.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -157,15 +167,18 @@ export class Viewer3D {
 
     const ambient = new THREE.HemisphereLight(0xffffff, 0x9a8f7a, 0.5);
     this.scene.add(ambient);
-    const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
+    // 2048px shadow map with a frustum fitted to the plan in build():
+    // sharper shadows than a fixed 4096 wide frustum, at 1/4 the memory.
+    const sun = new THREE.DirectionalLight(0xfff4e0, 1.5);
     sun.position.set(20, 30, 10);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(4096, 4096);
+    sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.left = -30;
     sun.shadow.camera.right = 30;
     sun.shadow.camera.top = 30;
     sun.shadow.camera.bottom = -30;
     sun.shadow.bias = -0.0002;
+    this.sun = sun;
     this.scene.add(sun);
 
     // Real grass PBR set on a meter-scaled plane (Fase 12).
@@ -187,12 +200,24 @@ export class Viewer3D {
     this.roomLights.name = 'roomLights';
     this.scene.add(this.roomLights);
 
+    // Ambient occlusion (contact shading) — used in orbit view only; the
+    // first-person tour renders directly to keep the framerate high.
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.gtaoPass = new GTAOPass(this.scene, this.camera);
+    this.gtaoPass.output = GTAOPass.OUTPUT.Default;
+    this.composer.addPass(this.gtaoPass);
+    this.composer.addPass(new OutputPass());
+
     const resize = () => {
       const w = container.clientWidth;
       const h = container.clientHeight;
       if (w === 0 || h === 0) return;
+      const ratio = Math.min(window.devicePixelRatio, 2); // cap for perf
       this.renderer.setSize(w, h);
-      this.renderer.setPixelRatio(window.devicePixelRatio);
+      this.renderer.setPixelRatio(ratio);
+      this.composer.setSize(w, h);
+      this.composer.setPixelRatio(ratio);
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
     };
@@ -216,10 +241,12 @@ export class Viewer3D {
       this.lastTime = now;
       if (this.touring) {
         this.updateWalk(dt);
+        // Direct render in walk mode: no AO cost, max framerate.
+        this.renderer.render(this.scene, this.camera);
       } else {
         this.controls.update();
+        this.composer.render();
       }
-      this.renderer.render(this.scene, this.camera);
     });
   }
 
@@ -248,6 +275,10 @@ export class Viewer3D {
       envMapIntensity: 1.5, // sharper IBL reflections on glazing
     });
 
+    // Shared trim materials (Fase 13): skirting boards + stone window sills.
+    const skirtMat = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.55 });
+    const sillMat = toStandard('pietra-chiara', 0xd5d0c4);
+
     for (const wall of plan.walls) {
       const override = wall.materialId ? toStandard(wall.materialId, 0xf2efe8) : null;
       const group = this.buildWall(
@@ -257,6 +288,8 @@ export class Viewer3D {
         glassMat,
         doorMat,
         frameMat,
+        skirtMat,
+        sillMat,
       );
       this.buildingGroup.add(group);
     }
@@ -264,6 +297,21 @@ export class Viewer3D {
     if (plan.walls.length > 0) {
       const { minX, minY, maxX, maxY } = this.bounds(plan);
       const wallHeight = plan.walls[0]?.height ?? 2.7;
+
+      // Fit the sun shadow frustum to the plan: sharper shadows from a
+      // smaller map than a fixed oversized box.
+      const cx0 = (minX + maxX) / 2;
+      const cz0 = (minY + maxY) / 2;
+      const radius = Math.max(maxX - minX, maxY - minY) / 2 + 6;
+      this.sun.position.set(cx0 + 14, 22, cz0 + 8);
+      this.sun.target.position.set(cx0, 0, cz0);
+      this.sun.target.updateMatrixWorld();
+      const sc = this.sun.shadow.camera;
+      sc.left = -radius;
+      sc.right = radius;
+      sc.top = radius;
+      sc.bottom = -radius;
+      sc.updateProjectionMatrix();
 
       // Floor slab under the bounding box of all walls.
       const t = 0.1;
@@ -307,14 +355,33 @@ export class Viewer3D {
       this.roofGroup.visible = this.roof.visible;
       this.buildingGroup.add(this.roofGroup);
 
-      // One warm light per room, auto-placed at its center below the ceiling.
+      // One warm light per room, auto-placed at its center below the ceiling,
+      // plus a small emissive ceiling lamp so the light source reads as real.
       if (plan.rooms) {
+        const lampShade = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.6 });
+        const lampBulb = new THREE.MeshStandardMaterial({
+          color: 0xfff4dd,
+          emissive: 0xffe9c0,
+          emissiveIntensity: 2.2,
+        });
+        const shadeGeo = new THREE.CylinderGeometry(0.16, 0.2, 0.1, 16);
+        const bulbGeo = new THREE.SphereGeometry(0.05, 10, 8);
         for (const room of plan.rooms.slice(0, MAX_ROOM_LIGHTS)) {
+          const cxr = room.x + room.w / 2;
+          const czr = room.y + room.h / 2;
           const light = new THREE.PointLight(0xffe9c9, 4, 7, 1.8);
-          light.position.set(room.x + room.w / 2, wallHeight - 0.35, room.y + room.h / 2);
+          light.position.set(cxr, wallHeight - 0.35, czr);
           this.roomLights.add(light);
+          const shade = new THREE.Mesh(shadeGeo, lampShade);
+          shade.position.set(cxr, wallHeight - 0.09, czr);
+          this.buildingGroup.add(shade);
+          const bulb = new THREE.Mesh(bulbGeo, lampBulb);
+          bulb.position.set(cxr, wallHeight - 0.17, czr);
+          this.buildingGroup.add(bulb);
         }
       }
+
+      this.buildExterior(plan, minX, minY, maxX, maxY);
 
       // Furniture (Fase 10): procedural pieces from the catalog.
       for (const item of plan.furniture ?? []) {
@@ -385,6 +452,81 @@ export class Viewer3D {
     return rooms.some((r) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h);
   }
 
+  /** Entrance path + low-poly greenery (Fase 13). Deterministic positions
+   *  derived from the plan bounds — same plan, same garden. Everything goes
+   *  into buildingGroup so the .glb export includes it. */
+  private buildExterior(
+    plan: Plan,
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number,
+  ): void {
+    // Stone path out of the first exterior door.
+    const doorWall = plan.walls.find(
+      (w) => w.exterior && w.openings.some((o) => o.type === 'door'),
+    );
+    if (doorWall) {
+      const opening = doorWall.openings.find((o) => o.type === 'door')!;
+      const angle = Math.atan2(doorWall.b.y - doorWall.a.y, doorWall.b.x - doorWall.a.x);
+      const px = doorWall.a.x + Math.cos(angle) * opening.offset;
+      const py = doorWall.a.y + Math.sin(angle) * opening.offset;
+      // Outward normal: probe which side is outside the rooms.
+      let nx = -Math.sin(angle);
+      let ny = Math.cos(angle);
+      const probe = doorWall.thickness / 2 + 0.1;
+      if (this.insideRoom({ x: px + nx * probe, y: py + ny * probe })) {
+        nx = -nx;
+        ny = -ny;
+      }
+      const slabMat = toStandard('pietra-chiara', 0xd5d0c4);
+      const slabGeo = new THREE.BoxGeometry(0.8, 0.05, 0.55);
+      boxUVsToMeters(slabGeo, 0.8, 0.05, 0.55);
+      for (let i = 0; i < 4; i++) {
+        const d = doorWall.thickness / 2 + 0.45 + i * 0.72;
+        const slab = new THREE.Mesh(slabGeo, slabMat);
+        slab.position.set(px + nx * d, 0.02, py + ny * d);
+        slab.rotation.y = -angle;
+        slab.receiveShadow = true;
+        this.buildingGroup.add(slab);
+      }
+    }
+
+    // Bushes at the corners and two trees: cheap icosphere foliage.
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x5f7a4d, roughness: 1 });
+    const leafDarkMat = new THREE.MeshStandardMaterial({ color: 0x4d6640, roughness: 1 });
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6f5138, roughness: 0.9 });
+    const bushGeo = new THREE.IcosahedronGeometry(0.5, 1);
+    const bushAt = (x: number, z: number, s: number, dark = false) => {
+      const bush = new THREE.Mesh(bushGeo, dark ? leafDarkMat : leafMat);
+      bush.position.set(x, 0.32 * s, z);
+      bush.scale.set(s, s * 0.75, s);
+      bush.castShadow = true;
+      this.buildingGroup.add(bush);
+    };
+    bushAt(minX - 1.3, minY - 1.1, 1);
+    bushAt(maxX + 1.4, minY - 1.6, 1.3, true);
+    bushAt(maxX + 1.8, maxY + 1.2, 0.9);
+    bushAt(minX - 1.7, maxY + 1.6, 1.15, true);
+    const treeAt = (x: number, z: number, s: number) => {
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11 * s, 0.15 * s, 1.9 * s, 8), trunkMat);
+      trunk.position.set(x, 0.95 * s, z);
+      trunk.castShadow = true;
+      this.buildingGroup.add(trunk);
+      const crown = new THREE.Mesh(bushGeo, leafMat);
+      crown.position.set(x, 2.35 * s, z);
+      crown.scale.set(2.4 * s, 2 * s, 2.4 * s);
+      crown.castShadow = true;
+      this.buildingGroup.add(crown);
+      const crown2 = new THREE.Mesh(bushGeo, leafDarkMat);
+      crown2.position.set(x + 0.5 * s, 1.9 * s, z + 0.3 * s);
+      crown2.scale.set(1.5 * s, 1.3 * s, 1.5 * s);
+      this.buildingGroup.add(crown2);
+    };
+    treeAt(minX - 3.6, (minY + maxY) / 2 + 1, 1);
+    treeAt(maxX + 4.2, minY - 2.2, 1.25);
+  }
+
   /** Wall as boxes: solid segments between openings, lintels above, sills
    *  below windows, door leaves and window frames from the assignment.
    *  Exterior walls get the facade material on the outside face only. */
@@ -395,6 +537,8 @@ export class Viewer3D {
     glassMat: THREE.Material,
     doorMat: THREE.Material,
     frameMat: THREE.Material,
+    skirtMat: THREE.Material,
+    sillMat: THREE.Material,
   ): THREE.Group {
     const group = new THREE.Group();
     group.name = wall.id;
@@ -461,6 +605,11 @@ export class Viewer3D {
         const glass = new THREE.Mesh(new THREE.BoxGeometry(ow, o.height, 0.04), glassMat);
         glass.position.set(oc, o.sill + o.height / 2, 0);
         group.add(glass);
+        // Protruding stone sill (Fase 13).
+        const sill = new THREE.Mesh(new THREE.BoxGeometry(ow + 0.12, 0.045, t + 0.14), sillMat);
+        sill.position.set(oc, o.sill - 0.0225, 0);
+        sill.castShadow = true;
+        group.add(sill);
         // Frame from the windows material: two jambs + head + sill piece.
         const ft = 0.07;
         const fd = Math.min(t * 0.7, 0.12);
@@ -495,6 +644,28 @@ export class Viewer3D {
       cursor = o.end;
     }
     addBox(cursor, len, 0, h); // remaining solid segment
+
+    // Skirting board / zoccolo (Fase 13): thin base strip along the wall,
+    // interrupted only at door openings (windows have wall below the sill).
+    const SKIRT_H = 0.08;
+    const doorSpans = openings
+      .filter((o) => o.type === 'door')
+      .map((o) => [o.start, o.end] as const);
+    let sx = 0;
+    const skirtRuns: [number, number][] = [];
+    for (const [ds, de] of doorSpans) {
+      if (ds - sx > 0.05) skirtRuns.push([sx, ds]);
+      sx = Math.max(sx, de);
+    }
+    if (len - sx > 0.05) skirtRuns.push([sx, len]);
+    for (const [s0, s1] of skirtRuns) {
+      const skirt = new THREE.Mesh(
+        new THREE.BoxGeometry(s1 - s0, SKIRT_H, t + 0.03),
+        skirtMat,
+      );
+      skirt.position.set((s0 + s1) / 2, SKIRT_H / 2, 0);
+      group.add(skirt);
+    }
 
     // Place in world: rotate around Y, plan y -> world z.
     group.rotation.y = -angle;
@@ -631,6 +802,7 @@ export class Viewer3D {
     disposeSubtree(this.scene);
     this.envTexture.dispose();
     this.pmrem.dispose();
+    this.composer.dispose();
     this.controls.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement === this.container) {

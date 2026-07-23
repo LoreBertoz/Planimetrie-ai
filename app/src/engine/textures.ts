@@ -18,7 +18,7 @@ function load(path: string, srgb: boolean, repeat: number): THREE.Texture {
     tex.wrapT = THREE.RepeatWrapping;
     if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
     tex.repeat.set(repeat, repeat);
-    tex.anisotropy = 8;
+    tex.anisotropy = 4; // good glancing-angle quality at low GPU cost
     tex.userData.shared = true;
     cache.set(key, tex);
   }
