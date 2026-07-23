@@ -9,6 +9,8 @@ interface Props {
   plan: Plan | null
   assignment: MaterialAssignment
   roof?: RoofOptions
+  /** Optional decorations (greenery, path, chimney). Default on. */
+  decorations?: boolean
   /** Bump to force a rebuild after in-place edits (2D editor). */
   version?: number
   onViewer?: (viewer: Viewer3D | null) => void
@@ -21,6 +23,7 @@ export function Viewer3DCanvas({
   plan,
   assignment,
   roof = DEFAULT_ROOF,
+  decorations = true,
   version = 0,
   onViewer,
   onTourChange,
@@ -57,6 +60,10 @@ export function Viewer3DCanvas({
   useEffect(() => {
     viewerRef.current?.setRoof(roof)
   }, [roof])
+
+  useEffect(() => {
+    viewerRef.current?.setDecorations(decorations)
+  }, [decorations])
 
   return <div ref={containerRef} className={cn('h-full w-full overflow-hidden', className)} />
 }

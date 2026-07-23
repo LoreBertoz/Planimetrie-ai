@@ -95,6 +95,11 @@ export class Viewer3D {
   private assignment: MaterialAssignment = DEFAULT_ASSIGNMENT;
   private roof: RoofOptions = { ...DEFAULT_ROOF };
   private furnitureColliders: Collider[] = [];
+  // Optional decorations (Fase 13): garden greenery, entrance path, chimney.
+  // On by default; the host can toggle them off. Hidden groups are skipped
+  // by the .glb export (GLTFExporter onlyVisible default).
+  private decorVisible = true;
+  private decorGroup: THREE.Group | null = null;
 
   // Tour state
   private touring = false;
@@ -259,6 +264,7 @@ export class Viewer3D {
     this.buildingGroup.clear();
     this.roofGroup = null;
     this.ceiling = null;
+    this.decorGroup = null;
     this.roomLights.clear();
     this.furnitureColliders = [];
 
@@ -353,6 +359,8 @@ export class Viewer3D {
       const exteriorWalls = plan.walls.filter((w) => w.exterior);
       this.roofGroup = buildRoofGroup(rects, exteriorWalls, wallHeight, this.roof, roofMat, gableMat);
       this.roofGroup.visible = this.roof.visible;
+      const chimney = this.roofGroup.getObjectByName('chimney');
+      if (chimney) chimney.visible = this.decorVisible;
       this.buildingGroup.add(this.roofGroup);
 
       // One warm light per room, auto-placed at its center below the ceiling,
@@ -416,6 +424,14 @@ export class Viewer3D {
     if (this.plan) this.build(this.plan, assignment);
   }
 
+  /** Show/hide the optional decorations (greenery, path, chimney). */
+  setDecorations(visible: boolean): void {
+    this.decorVisible = visible;
+    if (this.decorGroup) this.decorGroup.visible = visible;
+    const chimney = this.roofGroup?.getObjectByName('chimney');
+    if (chimney) chimney.visible = visible;
+  }
+
   /** Change roof type/slope/visibility. Visibility flips without a rebuild. */
   setRoof(roof: RoofOptions): void {
     const needsRebuild =
@@ -462,6 +478,12 @@ export class Viewer3D {
     maxX: number,
     maxY: number,
   ): void {
+    const decor = new THREE.Group();
+    decor.name = 'decor';
+    decor.visible = this.decorVisible;
+    this.decorGroup = decor;
+    this.buildingGroup.add(decor);
+
     // Stone path out of the first exterior door.
     const doorWall = plan.walls.find(
       (w) => w.exterior && w.openings.some((o) => o.type === 'door'),
@@ -488,7 +510,7 @@ export class Viewer3D {
         slab.position.set(px + nx * d, 0.02, py + ny * d);
         slab.rotation.y = -angle;
         slab.receiveShadow = true;
-        this.buildingGroup.add(slab);
+        decor.add(slab);
       }
     }
 
@@ -502,7 +524,7 @@ export class Viewer3D {
       bush.position.set(x, 0.32 * s, z);
       bush.scale.set(s, s * 0.75, s);
       bush.castShadow = true;
-      this.buildingGroup.add(bush);
+      decor.add(bush);
     };
     bushAt(minX - 1.3, minY - 1.1, 1);
     bushAt(maxX + 1.4, minY - 1.6, 1.3, true);
@@ -512,16 +534,16 @@ export class Viewer3D {
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11 * s, 0.15 * s, 1.9 * s, 8), trunkMat);
       trunk.position.set(x, 0.95 * s, z);
       trunk.castShadow = true;
-      this.buildingGroup.add(trunk);
+      decor.add(trunk);
       const crown = new THREE.Mesh(bushGeo, leafMat);
       crown.position.set(x, 2.35 * s, z);
       crown.scale.set(2.4 * s, 2 * s, 2.4 * s);
       crown.castShadow = true;
-      this.buildingGroup.add(crown);
+      decor.add(crown);
       const crown2 = new THREE.Mesh(bushGeo, leafDarkMat);
       crown2.position.set(x + 0.5 * s, 1.9 * s, z + 0.3 * s);
       crown2.scale.set(1.5 * s, 1.3 * s, 1.5 * s);
-      this.buildingGroup.add(crown2);
+      decor.add(crown2);
     };
     treeAt(minX - 3.6, (minY + maxY) / 2 + 1, 1);
     treeAt(maxX + 4.2, minY - 2.2, 1.25);

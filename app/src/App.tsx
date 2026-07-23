@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Sparkles,
   Tag,
+  TreePine,
   Video,
   Wand2,
 } from 'lucide-react'
@@ -103,6 +104,7 @@ export default function App() {
   const [labelAt, setLabelAt] = useState<Point | null>(null)
   const [labelName, setLabelName] = useState('')
   const [roof, setRoof] = useState<RoofOptions>(DEFAULT_ROOF)
+  const [decorations, setDecorations] = useState(true)
   const [editorSelection, setEditorSelection] = useState<EditorSelection>({
     wallId: null,
     openingId: null,
@@ -489,6 +491,16 @@ export default function App() {
                 <span className="text-sm font-semibold">Modello 3D</span>
                 <Separator orientation="vertical" className="hidden h-6 md:block" />
                 <RoofControls roof={roof} onChange={setRoof} />
+                <Button
+                  variant={decorations ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => setDecorations((d) => !d)}
+                  aria-pressed={decorations}
+                  title="Alberi, cespugli, vialetto e comignolo"
+                >
+                  <TreePine aria-hidden />
+                  {decorations ? 'Decorazioni attive' : 'Decorazioni spente'}
+                </Button>
                 <div className="ml-auto">
                   <Button
                     variant="outline"
@@ -508,6 +520,7 @@ export default function App() {
                   plan={wallPlan}
                   assignment={assignment}
                   roof={roof}
+                  decorations={decorations}
                   version={wallsVersion}
                   onViewer={setViewer}
                 />
@@ -536,6 +549,7 @@ export default function App() {
                   plan={wallPlan}
                   assignment={assignment}
                   roof={roof}
+                  decorations={decorations}
                   version={wallsVersion}
                   onViewer={setViewer}
                   onTourChange={setTouring}

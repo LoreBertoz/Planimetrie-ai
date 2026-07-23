@@ -243,7 +243,10 @@ export function buildRoofGroup(
   }
 
   // Chimney (Fase 13): on the largest footprint rect, near the ridge.
+  // Named group so the viewer can toggle it with the other decorations.
   const largest = rects.reduce((a, b) => (a.w * a.h >= b.w * b.h ? a : b));
+  const chimney = new THREE.Group();
+  chimney.name = 'chimney';
   {
     const x0 = largest.x - OVERHANG;
     const x1 = largest.x + largest.w + OVERHANG;
@@ -260,14 +263,15 @@ export function buildRoofGroup(
     const body = new THREE.Mesh(bodyGeo, gableMat);
     body.position.set(cxC, (topY + h0 - 0.4) / 2, czC);
     body.castShadow = true;
-    group.add(body);
+    chimney.add(body);
     const cap = new THREE.Mesh(
       new THREE.BoxGeometry(0.68, 0.07, 0.6),
       new THREE.MeshStandardMaterial({ color: 0x6b5844, roughness: 0.8 }),
     );
     cap.position.set(cxC, topY + 0.035, czC);
     cap.castShadow = true;
-    group.add(cap);
+    chimney.add(cap);
   }
+  group.add(chimney);
   return group;
 }
